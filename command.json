@@ -1,0 +1,11 @@
+{
+  "schema": "REALLBLACK_REMOTE_COMMAND_V1",
+  "command_id": "youtube-open-20260901T164701-0300",
+  "command": "abra o app youtube",
+  "action": "open_application",
+  "target": "YouTube",
+  "risk": "LOW",
+  "requested_at": "2026-09-01T16:47:01-03:00",
+  "source": "ChatGPT",
+  "status": "QUEUED"
+}
