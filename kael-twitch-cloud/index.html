@@ -1,30 +1,75 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>KAEL Twitch Cloud</title><style>
-:root{color-scheme:dark;--bg:#070a10;--p:#101722;--l:#263247;--t:#edf3ff;--m:#8391aa;--a:#8b6cff;--ok:#35d07f;--w:#f4b64f}
-*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#070a10,#0b1019);color:var(--t);font:13px Segoe UI,Arial,sans-serif}
-header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:14px 18px;background:#090e17ee;border-bottom:1px solid var(--l)}
-.logo{font-size:19px;font-weight:900;margin-right:auto}.logo b{color:var(--a)}.pill{padding:6px 9px;border:1px solid var(--l);border-radius:999px;color:var(--m)}
-main{padding:16px}.stats{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px;margin-bottom:14px}.stat{padding:14px;border:1px solid var(--l);border-radius:12px;background:var(--p)}.stat strong{display:block;font-size:24px}.stat span{color:var(--m)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.card{border:1px solid var(--l);border-radius:12px;overflow:hidden;background:var(--p)}
-.head{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid #1d293b}.dot{width:8px;height:8px;border-radius:50%;background:var(--w)}.dot.ok{background:var(--ok)}
-.name{font-weight:800}.badge{margin-left:auto;color:var(--m);font-size:10px}.preview{aspect-ratio:16/9;display:grid;place-items:center;background:radial-gradient(circle at 50% 10%,#1b2942,#090d14 70%);color:#6f7e98;font-weight:800}
-.meta{padding:9px 10px;color:var(--m);font-size:11px}.meta div{display:flex;justify-content:space-between;margin:3px 0}.foot{margin-top:14px;padding:12px;border:1px solid var(--l);border-radius:12px;color:var(--m);background:#0c121c}
-@media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}header{padding:10px}.pill:nth-of-type(2){display:none}}
+<title>KAEL Twitch Central Cloud V37</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#080b11;--p:#101621;--p2:#141b29;--l:#273247;--t:#f4f7ff;--m:#92a0bb;--a:#a970ff;--ok:#42d99a;--warn:#f3b95f;--bad:#ff6074}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:13px Segoe UI,Arial,sans-serif}button,input{font:inherit}
+header{padding:16px 22px 10px;border-bottom:1px solid #171e2b}.title{font-size:25px;font-weight:900;color:var(--a)}.sub{margin-top:5px;color:var(--m)}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 22px}.toolbar input{height:38px;background:var(--p2);border:1px solid #35425e;color:#fff;padding:0 11px}.search{width:250px}.channel{width:175px}.qty{width:70px}
+button{height:38px;border:1px solid #28354d;background:#161d2c;color:#fff;padding:0 15px;font-weight:800;cursor:pointer}button:hover{border-color:#7957bf;background:#1c2538}.accent{border-color:#6e53a5}
+.metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:8px 22px}.metric{background:var(--p);border:1px solid #151e2e;padding:12px}.metric span{display:block;color:var(--m);font-size:11px}.metric b{display:block;font-size:18px;margin-top:10px}
+.summary{padding:7px 12px;margin-top:2px;background:#111725;border-top:1px solid #202b40;border-bottom:1px solid #202b40;color:var(--m)}.summary strong{color:var(--a);font-size:16px;margin-right:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:10px;padding:12px 22px 28px}.card{background:var(--p);border:1px solid #26334b;border-radius:7px;overflow:hidden;min-width:0}.card.selected{outline:2px solid var(--a)}
+.cardhead{display:flex;align-items:center;gap:7px;height:34px;padding:0 9px;border-bottom:1px solid #273248;white-space:nowrap;overflow:hidden}.dot{width:8px;height:8px;border-radius:50%;background:var(--warn);flex:0 0 auto}.dot.ok{background:var(--ok)}.cardtitle{font-weight:800;overflow:hidden;text-overflow:ellipsis}.state{margin-left:auto;color:var(--m);font-size:10px}
+.media{position:relative;aspect-ratio:16/9;background:#000}.media video{width:100%;height:100%;display:block;background:#000;object-fit:contain}.overlay{position:absolute;inset:0;display:grid;place-items:center;color:#8ea0bf;font-weight:800;pointer-events:none;text-shadow:0 1px 3px #000}.overlay.hide{display:none}
+.meta{padding:7px 9px;color:var(--m);font-size:10px}.row{display:flex;justify-content:space-between;gap:10px;margin:3px 0}.good{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+body.focus .grid{grid-template-columns:minmax(500px,1100px);justify-content:center}body.focus .card:not(.selected){display:none}body.focus .media{aspect-ratio:16/9}
+#toast{position:fixed;right:18px;bottom:18px;z-index:20;background:#161f30;border:1px solid #34435f;padding:12px 15px;border-radius:9px;max-width:430px;display:none}
+@media(max-width:900px){.metrics{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.toolbar{padding:9px}.metrics,.grid{padding-left:9px;padding-right:9px}}
+@media(max-width:600px){.metrics{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.search,.channel{width:100%}}
 </style></head><body>
-<header><div class="logo"><b>KAEL</b> Twitch Cloud</div><span class="pill">V37</span><span class="pill" id="sync">sincronizando</span></header>
-<main><section class="stats"><div class="stat"><strong id="ten">-</strong><span>perfis</span></div><div class="stat"><strong id="wrk">-</strong><span>workers online</span></div><div class="stat"><strong id="cap">-</strong><span>capacidade lógica</span></div><div class="stat"><strong id="state">-</strong><span>estado</span></div></section>
-<div id="grid" class="grid"></div><div class="foot">Painel cloud read-only. A interface e o estado continuam disponíveis com o BlackBoss desligado. A reprodução ao vivo ainda depende do worker de mídia enquanto ele não for migrado para servidor remoto.</div></main><script>
+<header><div class="title">KAEL / TWITCH &nbsp;|&nbsp; PERFIS ISOLADOS <small style="font-size:12px;color:#9aa7c0">CLOUD V37</small></div><div class="sub">1 tenant = 1 sessão = 1 rota/IP &nbsp;|&nbsp; HLS isolado por perfil &nbsp;|&nbsp; Central principal online</div></header>
+<div class="toolbar">
+<input id="search" class="search" placeholder="Buscar perfil / IP / canal"><input id="channel" class="channel" placeholder="@ do canal"><input id="qty" class="qty" value="1" inputmode="numeric">
+<button id="focusBtn">ABRIR / FOCAR</button><button id="loginBtn">LOGIN</button><button id="loginNextBtn">LOGIN PRÓXIMO</button><button id="closeBtn">FECHAR FOCO</button><button id="refreshBtn">ATUALIZAR</button><button id="gridBtn">GRADE</button>
+<button id="addBtn" class="accent">+ PERFIL @reallbllack</button><button id="manualBtn">+ PERFIL MANUAL</button><button id="scaleBtn">+ CRIAR ESCALA</button><button id="qualityBtn">QUALIDADE: AUTO</button><button id="volumeBtn">VOLUME: MUDO</button>
+</div>
+<section class="metrics">
+<div class="metric"><span>PERFIS</span><b id="mProfiles">-</b></div><div class="metric"><span>RAM KAEL</span><b id="mRam">-</b></div><div class="metric"><span>CPU</span><b id="mCpu">-</b></div><div class="metric"><span>REDE</span><b id="mNet">-</b></div><div class="metric"><span>ABERTURA HLS</span><b id="mOpen">-</b></div><div class="metric"><span>QUEDAS</span><b id="mDrops">-</b></div>
+</section>
+<div class="summary"><strong>MASTER | HLS ULTRA LEVE</strong><span id="summary">sincronizando...</span></div>
+<main id="grid" class="grid"></main><div id="toast"></div>
+<script>
 const API='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v37-public-snapshot';
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const age=t=>{if(!t)return'-';const n=Math.max(0,Date.now()-new Date(t).getTime()),s=Math.floor(n/1000);return s<60?s+'s':s<3600?Math.floor(s/60)+'m':Math.floor(s/3600)+'h'};
-async function refresh(){
- try{
-  const r=await fetch(API,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);const s=await r.json();
-  ten.textContent=s.counts.tenants;wrk.textContent=s.counts.online_workers+'/'+s.counts.workers;cap.textContent=s.counts.capacity;state.textContent=s.counts.online_workers>0?'ONLINE':'CLOUD ONLY';
-  sync.textContent='sync '+new Date(s.server_time).toLocaleTimeString();
-  grid.innerHTML=(s.tenants||[]).map(t=>'<article class="card"><div class="head"><i class="dot '+(t.worker_online?'ok':'')+'"></i><div class="name">'+esc(t.display_name)+'</div><div class="badge">'+esc(t.state)+'</div></div><div class="preview">'+(t.worker_online?'WORKER CONECTADO':'SEM WORKER')+'</div><div class="meta"><div><span>Canal</span><b>@'+esc(t.target_channel)+'</b></div><div><span>Lifecycle</span><span>'+esc(t.lifecycle)+'</span></div><div><span>Atualizado</span><span>há '+age(t.updated_at)+'</span></div></div></article>').join('');
- }catch(e){state.textContent='ERRO';sync.textContent=String(e.message||e)}
+const CONTROL='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v37-control';
+let snap=null, selected=null, adminKey='', volume=0, quality='auto', renderSig='', mediaBase=null;
+const players=new Map(), $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(s){const x=$('toast');x.textContent=s;x.style.display='block';clearTimeout(x._t);x._t=setTimeout(()=>x.style.display='none',4500)}
+function fmtBytes(n){n=Number(n||0);return n>=1048576?(n/1048576).toFixed(1)+' MB/s':n>=1024?(n/1024).toFixed(0)+' KB/s':n+' B/s'}
+function sig(s){return (s.tenants||[]).map(t=>t.tenant_id).join('|')+'|'+String(s.media_base_url||'')}
+function destroyPlayers(){for(const p of players.values()){try{p.hls?.destroy()}catch{};try{p.video.pause()}catch{}}players.clear()}
+function attach(t,base){const video=document.querySelector('video[data-id="'+t.tenant_id+'"]'),ov=document.querySelector('.overlay[data-id="'+t.tenant_id+'"]');if(!video)return;
+ const url=base+'/tenant-hls/'+encodeURIComponent(t.tenant_id)+'/index.m3u8';let h=null;
+ video.autoplay=true;video.playsInline=true;video.muted=volume===0;video.volume=volume;
+ const live=()=>ov?.classList.add('hide'), wait=()=>{ov?.classList.remove('hide');if(ov)ov.textContent='CARREGANDO HLS'};
+ video.addEventListener('playing',live);video.addEventListener('waiting',wait);video.addEventListener('error',()=>{if(ov){ov.classList.remove('hide');ov.textContent='RECONECTANDO'}});
+ if(window.Hls&&Hls.isSupported()){h=new Hls({enableWorker:true,lowLatencyMode:false,capLevelToPlayerSize:true,maxBufferLength:20,backBufferLength:5,manifestLoadingMaxRetry:20,levelLoadingMaxRetry:12,fragLoadingMaxRetry:12});h.attachMedia(video);h.on(Hls.Events.MEDIA_ATTACHED,()=>h.loadSource(url));h.on(Hls.Events.MANIFEST_PARSED,()=>{applyQualityOne(h);video.play().catch(()=>{})});h.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal){if(d.type===Hls.ErrorTypes.MEDIA_ERROR)try{h.recoverMediaError()}catch{}else setTimeout(()=>{try{h.startLoad()}catch{}},1500)}})}
+ else if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.play().catch(()=>{})}
+ players.set(t.tenant_id,{video,hls:h,base});}
+function build(s){const ns=sig(s);if(ns===renderSig)return;renderSig=ns;destroyPlayers();mediaBase=s.media_base_url||null;
+ $('grid').innerHTML=(s.tenants||[]).map(t=>'<article class="card" data-id="'+t.tenant_id+'"><div class="cardhead"><i class="dot '+(t.worker_online?'ok':'')+'"></i><span class="cardtitle">@'+esc(t.target_channel)+' | '+esc(t.display_name)+' | '+esc(t.network_mode)+' | '+esc(t.masked_ip)+'</span><span class="state">'+esc(t.state)+'</span></div><div class="media"><video data-id="'+t.tenant_id+'" muted></video><div class="overlay" data-id="'+t.tenant_id+'">'+(s.media_base_url?'CONECTANDO HLS':'SEM GATEWAY DE MÍDIA')+'</div></div><div class="meta"><div class="row"><span>Login</span><b class="'+(t.login_state==='LOGIN OK'?'good':'warn')+'">'+esc(t.login_state)+'</b></div><div class="row"><span>Sessão</span><span>'+esc(t.session_state)+'</span></div><div class="row"><span>Rota</span><span class="'+(t.route_state==='HEALTHY'?'good':'bad')+'">'+esc(t.route_state)+'</span></div></div></article>').join('');
+ document.querySelectorAll('.card').forEach(c=>c.addEventListener('click',()=>{selected=c.dataset.id;document.querySelectorAll('.card').forEach(x=>x.classList.toggle('selected',x.dataset.id===selected))}));
+ if(mediaBase)for(const t of s.tenants||[])attach(t,mediaBase);
 }
+function update(s){snap=s;build(s);$('mProfiles').textContent=s.counts.tenants;$('mRam').textContent=s.metrics.kael_ram_mb==null?'-':(s.metrics.kael_ram_mb>=1024?(s.metrics.kael_ram_mb/1024).toFixed(1)+' GB':s.metrics.kael_ram_mb+' MB');$('mCpu').textContent=s.metrics.cpu_pct==null?'-':s.metrics.cpu_pct+'%';$('mNet').textContent=fmtBytes(s.metrics.net_bps);$('mOpen').textContent=s.metrics.hls_probe_ms==null?'-':(s.metrics.hls_probe_ms/1000).toFixed(2)+' s';$('mDrops').textContent=s.metrics.drops??'-';
+ const ok=(s.tenants||[]).filter(t=>t.login_state==='LOGIN OK').length, no=(s.tenants||[]).filter(t=>t.login_state==='SEM LOGIN').length, pending=s.counts.tenants-ok-no;
+ $('summary').textContent=s.counts.tenants+' perfis | '+(s.metrics.sources??0)+' origens isoladas | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | '+(s.metrics.fps??'-')+' FPS | '+s.metrics.pipelines+' pipelines | worker '+(s.counts.online_workers?'ONLINE':'OFFLINE');
+ document.querySelectorAll('.card').forEach(c=>{const t=(s.tenants||[]).find(x=>x.tenant_id===c.dataset.id);if(!t)return;const d=c.querySelector('.dot');d?.classList.toggle('ok',!!t.worker_online)});
+ filterCards();
+}
+async function refresh(){try{const r=await fetch(API,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);update(await r.json())}catch(e){toast('Falha cloud: '+e.message)}}
+function filterCards(){const q=$('search').value.trim().toLowerCase();document.querySelectorAll('.card').forEach(c=>{const t=snap?.tenants.find(x=>x.tenant_id===c.dataset.id);const hay=((t?.display_name||'')+' '+(t?.target_channel||'')+' '+(t?.masked_ip||'')+' '+(t?.network_mode||'')).toLowerCase();c.style.display=!q||hay.includes(q)?'':'none'})}
+function applyQualityOne(h){if(!h)return;try{if(quality==='auto')h.currentLevel=-1;else if(h.levels.length)h.currentLevel=quality==='minimum'?0:Math.min(1,h.levels.length-1)}catch{}}
+function applyQuality(){for(const p of players.values())applyQualityOne(p.hls)}
+function focus(){if(!selected){toast('Selecione um perfil primeiro.');return}document.body.classList.add('focus');document.querySelectorAll('.card').forEach(x=>x.classList.toggle('selected',x.dataset.id===selected));const p=players.get(selected);if(p){p.video.muted=volume===0;p.video.volume=volume}}
+function closeFocus(){document.body.classList.remove('focus')}
+async function enqueue(action,args={}){if(!adminKey)adminKey=prompt('Chave administrativa do KAEL Cloud:')||'';if(!adminKey)return;const r=await fetch(CONTROL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:adminKey,op:'enqueue',action,args})});const j=await r.json();if(!r.ok){if(r.status===401)adminKey='';throw Error(j.error||'falha')};toast(action+' enviado ao worker');setTimeout(refresh,2500)}
+$('search').addEventListener('input',filterCards);$('refreshBtn').onclick=refresh;$('focusBtn').onclick=focus;$('closeBtn').onclick=closeFocus;$('gridBtn').onclick=closeFocus;
+$('addBtn').onclick=()=>enqueue('ADD_PROFILE',{channel:'reallbllack'}).catch(e=>toast(e.message));$('manualBtn').onclick=()=>{const c=$('channel').value.trim().replace(/^@/,'');if(!c)return toast('Informe o @ do canal.');enqueue('ADD_PROFILE',{channel:c}).catch(e=>toast(e.message))};
+$('scaleBtn').onclick=()=>{const c=$('channel').value.trim().replace(/^@/,'');const n=Math.max(1,Math.min(100,Number($('qty').value||1)));if(!c)return toast('Informe o @ do canal.');enqueue('ADD_SCALE',{channel:c,count:n}).catch(e=>toast(e.message))};
+$('qualityBtn').onclick=()=>{quality=quality==='auto'?'low':quality==='low'?'minimum':'auto';$('qualityBtn').textContent='QUALIDADE: '+(quality==='auto'?'AUTO':quality==='low'?'BAIXA':'MÍNIMA');applyQuality()};
+$('volumeBtn').onclick=()=>{volume=volume===0?.25:volume===.25?.5:volume===.5?1:0;$('volumeBtn').textContent=volume===0?'VOLUME: MUDO':'VOLUME: '+Math.round(volume*100)+'%';for(const p of players.values()){p.video.volume=volume;p.video.muted=volume===0;if(volume>0)p.video.play().catch(()=>{})}};
+$('loginBtn').onclick=()=>toast('Login isolado: estado sincronizado. A janela de autenticação remota segura ainda está sendo migrada para o cloud.');$('loginNextBtn').onclick=()=>toast('Próximo login pendente: '+((snap?.tenants||[]).find(t=>t.login_state!=='LOGIN OK')?.display_name||'nenhum'));
 refresh();setInterval(refresh,10000);
 </script></body></html>
