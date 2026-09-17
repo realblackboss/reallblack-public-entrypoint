@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
-  <title>REALLBLACK</title>
+  <title>KAEL Twitch V37</title>
   <style>
     body{margin:0;background:#080b10;color:#f4f6f8;font-family:system-ui,-apple-system,Segoe UI,sans-serif;display:grid;place-items:center;min-height:100vh}
     main{max-width:560px;padding:32px;text-align:center}
@@ -15,28 +15,13 @@
 </head>
 <body>
 <main>
-  <h1><span class="dot"></span>REALLBLACK</h1>
-  <p id="status">Conectando ao endereço público atual...</p>
-  <p id="fallback"></p>
-  <small>Entrada estável. O destino pode mudar automaticamente.</small>
+  <h1><span class="dot"></span>KAEL Twitch V37</h1>
+  <p>Redirecionando para a Central Cloud...</p>
+  <p><a id="open" href="https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v37-dashboard-ui">Abrir Central V37</a></p>
+  <small>Entrada pública estável. A Central continua disponível mesmo com o PC local desligado.</small>
 </main>
 <script>
-(async()=>{
-  try{
-    const r=await fetch('./current.json?t='+Date.now(),{cache:'no-store'});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const d=await r.json();
-    if(!/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(d.url)) throw new Error('invalid target');
-    document.getElementById('status').textContent='Redirecionando...';
-    const a=document.createElement('a');
-    a.href=d.url;
-    a.textContent='Abrir REALLBLACK';
-    document.getElementById('fallback').appendChild(a);
-    setTimeout(()=>location.replace(d.url),350);
-  }catch(e){
-    document.getElementById('status').textContent='O endereço está sendo atualizado. Tente novamente em instantes.';
-  }
-})();
+  setTimeout(()=>location.replace('https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v37-dashboard-ui'),350);
 </script>
 </body>
 </html>
