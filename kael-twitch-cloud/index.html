@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KAEL Twitch Cloud</title><style>
+:root{color-scheme:dark;--bg:#070a10;--p:#101722;--l:#263247;--t:#edf3ff;--m:#8391aa;--a:#8b6cff;--ok:#35d07f;--w:#f4b64f}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#070a10,#0b1019);color:var(--t);font:13px Segoe UI,Arial,sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:14px 18px;background:#090e17ee;border-bottom:1px solid var(--l)}
+.logo{font-size:19px;font-weight:900;margin-right:auto}.logo b{color:var(--a)}.pill{padding:6px 9px;border:1px solid var(--l);border-radius:999px;color:var(--m)}
+main{padding:16px}.stats{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px;margin-bottom:14px}.stat{padding:14px;border:1px solid var(--l);border-radius:12px;background:var(--p)}.stat strong{display:block;font-size:24px}.stat span{color:var(--m)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.card{border:1px solid var(--l);border-radius:12px;overflow:hidden;background:var(--p)}
+.head{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid #1d293b}.dot{width:8px;height:8px;border-radius:50%;background:var(--w)}.dot.ok{background:var(--ok)}
+.name{font-weight:800}.badge{margin-left:auto;color:var(--m);font-size:10px}.preview{aspect-ratio:16/9;display:grid;place-items:center;background:radial-gradient(circle at 50% 10%,#1b2942,#090d14 70%);color:#6f7e98;font-weight:800}
+.meta{padding:9px 10px;color:var(--m);font-size:11px}.meta div{display:flex;justify-content:space-between;margin:3px 0}.foot{margin-top:14px;padding:12px;border:1px solid var(--l);border-radius:12px;color:var(--m);background:#0c121c}
+@media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}header{padding:10px}.pill:nth-of-type(2){display:none}}
+</style></head><body>
+<header><div class="logo"><b>KAEL</b> Twitch Cloud</div><span class="pill">V37</span><span class="pill" id="sync">sincronizando</span></header>
+<main><section class="stats"><div class="stat"><strong id="ten">-</strong><span>perfis</span></div><div class="stat"><strong id="wrk">-</strong><span>workers online</span></div><div class="stat"><strong id="cap">-</strong><span>capacidade lógica</span></div><div class="stat"><strong id="state">-</strong><span>estado</span></div></section>
+<div id="grid" class="grid"></div><div class="foot">Painel cloud read-only. A interface e o estado continuam disponíveis com o BlackBoss desligado. A reprodução ao vivo ainda depende do worker de mídia enquanto ele não for migrado para servidor remoto.</div></main><script>
+const API='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v37-public-snapshot';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const age=t=>{if(!t)return'-';const n=Math.max(0,Date.now()-new Date(t).getTime()),s=Math.floor(n/1000);return s<60?s+'s':s<3600?Math.floor(s/60)+'m':Math.floor(s/3600)+'h'};
+async function refresh(){
+ try{
+  const r=await fetch(API,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);const s=await r.json();
+  ten.textContent=s.counts.tenants;wrk.textContent=s.counts.online_workers+'/'+s.counts.workers;cap.textContent=s.counts.capacity;state.textContent=s.counts.online_workers>0?'ONLINE':'CLOUD ONLY';
+  sync.textContent='sync '+new Date(s.server_time).toLocaleTimeString();
+  grid.innerHTML=(s.tenants||[]).map(t=>'<article class="card"><div class="head"><i class="dot '+(t.worker_online?'ok':'')+'"></i><div class="name">'+esc(t.display_name)+'</div><div class="badge">'+esc(t.state)+'</div></div><div class="preview">'+(t.worker_online?'WORKER CONECTADO':'SEM WORKER')+'</div><div class="meta"><div><span>Canal</span><b>@'+esc(t.target_channel)+'</b></div><div><span>Lifecycle</span><span>'+esc(t.lifecycle)+'</span></div><div><span>Atualizado</span><span>há '+age(t.updated_at)+'</span></div></div></article>').join('');
+ }catch(e){state.textContent='ERRO';sync.textContent=String(e.message||e)}
+}
+refresh();setInterval(refresh,10000);
+</script></body></html>
