@@ -12,6 +12,9 @@ const fmtBytes=n=>{n=Number(n||0);return n>=1048576?(n/1048576).toFixed(1)+' MB/
 
 let snap=null, selected=null, adminKey='', volume=0, quality='auto', mediaBase=null;
 let refreshTimer=0, refreshAbort=null, refreshInFlight=false, lastSnapshotAt=0, isLeader=false, lastOrderKey='';
+const query=new URLSearchParams(location.search);
+let lotStart=Math.max(1,Math.floor(Number(query.get('start')||1)));
+let lotSize=query.has('size')?Math.max(1,Math.floor(Number(query.get('size')||50))):null;
 const players=new Map();
 const cards=new Map();
 const tenantMap=new Map();
@@ -160,9 +163,16 @@ function updateCard(t){
   }
 }
 
+function activeTenants(s){
+  const all=s.tenants||[];
+  if(!lotSize)return all;
+  return all.slice(lotStart-1,lotStart-1+lotSize);
+}
+
 function reconcileTenants(s){
+  const list=activeTenants(s);
   tenantMap.clear();
-  for(const t of s.tenants||[])tenantMap.set(t.tenant_id,t);
+  for(const t of list)tenantMap.set(t.tenant_id,t);
 
   for(const id of [...cards.keys()]){
     if(!tenantMap.has(id)){
@@ -178,7 +188,6 @@ function reconcileTenants(s){
     for(const id of [...players.keys()])cleanupPlayer(id);
   }
 
-  const list=s.tenants||[];
   for(const t of list)updateCard(t);
   const orderKey=list.map(t=>t.tenant_id).join('|');
   if(orderKey!==lastOrderKey){
@@ -205,7 +214,9 @@ function updateMetrics(s){
   let ok=0,no=0;
   for(const t of tenants){if(t.login_state==='LOGIN OK')ok++;else if(t.login_state==='SEM LOGIN')no++}
   const total=s.counts?.tenants??tenants.length, pending=total-ok-no;
-  setText($('summary'),total+' perfis | '+(s.metrics?.sources??0)+' origens isoladas | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | '+(s.metrics?.fps??'-')+' FPS | '+(s.metrics?.pipelines??0)+' pipelines | worker '+(s.counts?.online_workers?'ONLINE':'OFFLINE'));
+  const end=lotSize?Math.min(total,lotStart+lotSize-1):total;
+  const lotInfo=lotSize?' | lote '+lotStart+'-'+end:'';
+  setText($('summary'),total+' perfis'+lotInfo+' | '+(s.metrics?.sources??0)+' origens isoladas | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | '+(s.metrics?.fps??'-')+' FPS | '+(s.metrics?.pipelines??0)+' pipelines | worker '+(s.counts?.online_workers?'ONLINE':'OFFLINE'));
 }
 
 function applySnapshot(s,{broadcast=false}={}){
@@ -276,6 +287,30 @@ function focus(){
 }
 function closeFocus(){document.body.classList.remove('focus')}
 
+function readLotInputs(){
+  const start=Math.max(1,Math.floor(Number($('lotStart')?.value)||1));
+  const size=Math.max(1,Math.floor(Number($('lotSize')?.value)||50));
+  return {start,size};
+}
+function makeLotUrl(start,size){
+  const u=new URL(location.href);
+  u.searchParams.set('start',String(start));
+  u.searchParams.set('size',String(size));
+  return u;
+}
+function applyLot(){
+  const {start,size}=readLotInputs();
+  location.href=makeLotUrl(start,size).href;
+}
+function openLotWindow(startArg,sizeArg){
+  const v=(startArg&&sizeArg)?{start:Math.max(1,Math.floor(Number(startArg))),size:Math.max(1,Math.floor(Number(sizeArg)))}:readLotInputs();
+  const u=makeLotUrl(v.start,v.size);
+  const w=window.open(u.href,'kael-v38-lot-'+v.start+'-'+v.size,'popup=yes,width=1500,height=950,resizable=yes,scrollbars=yes');
+  if(!w)toast('O navegador bloqueou a nova janela. Libere pop-ups para este painel.');
+  return w;
+}
+window.KAEL_V38={openLot:openLotWindow};
+
 async function enqueue(action,args={}){
   if(!adminKey)adminKey=prompt('Chave administrativa do KAEL Cloud:')||'';
   if(!adminKey)return;
@@ -285,6 +320,11 @@ async function enqueue(action,args={}){
   toast(action+' enviado ao worker');
   setTimeout(()=>refresh({force:true}),2500);
 }
+
+if($('lotStart'))$('lotStart').value=String(lotStart);
+if($('lotSize'))$('lotSize').value=String(lotSize||50);
+if($('lotBtn'))$('lotBtn').onclick=applyLot;
+if($('lotWindowBtn'))$('lotWindowBtn').onclick=()=>openLotWindow();
 
 $('grid').addEventListener('click',e=>{
   const card=e.target.closest('.card');
