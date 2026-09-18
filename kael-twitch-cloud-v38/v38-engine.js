@@ -51,9 +51,10 @@ function applyQualityOne(player){
 function applyQuality(){for(const p of players.values())applyQualityOne(p.player)}
 
 function updateDirectMetrics(){
-  let ready=0,kbps=0,drops=0;
+  let ready=0,playing=0,kbps=0,drops=0;
   for(const p of players.values()){
     if(p.ready)ready++;
+    if(p.playing)playing++;
     try{
       const s=p.player?.getPlaybackStats?.();
       if(s){
@@ -63,7 +64,7 @@ function updateDirectMetrics(){
     }catch{}
   }
   setText($('mCpu'),String(players.size));
-  setText($('mOpen'),ready+'/'+players.size);
+  setText($('mOpen'),playing+'/'+players.size);
   if(kbps>0)setText($('mNet'),(kbps/1000).toFixed(1)+' Mbps');
   else setText($('mNet'),'-');
   setText($('mDrops'),String(Math.round(drops)));
@@ -129,8 +130,12 @@ function attachPlayer(t){
 
     player.addEventListener(Twitch.Player.READY,()=>{
       entry.ready=true;
-      try{player.setMuted(volume===0);player.setVolume(volume)}catch{}
-      applyQualityOne(player);
+      try{
+        player.setMuted(volume===0);
+        player.setVolume(volume);
+        applyQualityOne(player);
+        player.play();
+      }catch{}
       updateDirectMetrics();
     });
     player.addEventListener(Twitch.Player.PLAYING,()=>{
@@ -140,6 +145,10 @@ function attachPlayer(t){
     });
     player.addEventListener(Twitch.Player.ONLINE,()=>{
       setText(ov,'INICIANDO LIVE');
+      try{
+        player.setMuted(volume===0);
+        player.play();
+      }catch{}
     });
     player.addEventListener(Twitch.Player.OFFLINE,()=>{
       entry.playing=false;
@@ -246,7 +255,8 @@ function updateMetrics(s){
   const total=s.counts?.tenants??tenants.length, pending=total-ok-no;
   const end=lotSize?Math.min(total,lotStart+lotSize-1):total;
   const lotInfo=lotSize?' | lote '+lotStart+'-'+end:'';
-  setText($('summary'),total+' perfis'+lotInfo+' | '+players.size+' players diretos | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | vídeo Twitch → '+location.hostname);
+  const playing=[...players.values()].filter(p=>p.playing).length;
+  setText($('summary'),total+' perfis'+lotInfo+' | '+playing+'/'+players.size+' vídeos tocando | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | vídeo Twitch → '+location.hostname);
 }
 
 function applySnapshot(s,{broadcast=false}={}){
@@ -339,7 +349,15 @@ function openLotWindow(startArg,sizeArg){
   if(!w)toast('O navegador bloqueou a nova janela. Libere pop-ups para este painel.');
   return w;
 }
-window.KAEL_V38={openLot:openLotWindow};
+window.KAEL_V38={
+  openLot:openLotWindow,
+  status:()=>({
+    total:players.size,
+    ready:[...players.values()].filter(p=>p.ready).length,
+    playing:[...players.values()].filter(p=>p.playing).length,
+    channels:[...players.values()].map(p=>({channel:p.channel,ready:p.ready,playing:p.playing}))
+  })
+};
 
 async function enqueue(action,args={}){
   if(!adminKey)adminKey=prompt('Chave administrativa do KAEL Cloud:')||'';
