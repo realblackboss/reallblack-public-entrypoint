@@ -11,7 +11,7 @@ button{height:38px;border:1px solid #28354d;background:#161d2c;color:#fff;paddin
 .metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:8px 22px}.metric{background:var(--p);border:1px solid #151e2e;padding:12px}.metric span{display:block;color:var(--m);font-size:11px}.metric b{display:block;font-size:18px;margin-top:10px}
 .summary{padding:7px 12px;margin-top:2px;background:#111725;border-top:1px solid #202b40;border-bottom:1px solid #202b40;color:var(--m)}.summary strong{color:var(--a);font-size:16px;margin-right:10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:10px;padding:12px 22px 28px}
-.card{background:var(--p);border:1px solid #26334b;border-radius:7px;overflow:hidden;min-width:400px;contain:layout paint style;content-visibility:auto;contain-intrinsic-size:400px 370px}
+.card{background:var(--p);border:1px solid #26334b;border-radius:7px;overflow:hidden;min-width:400px;contain:layout paint style;contain-intrinsic-size:400px 370px}
 .card.selected{outline:2px solid var(--a)}
 .cardhead{display:flex;align-items:center;gap:7px;height:34px;padding:0 9px;border-bottom:1px solid #273248;white-space:nowrap;overflow:hidden}.dot{width:8px;height:8px;border-radius:50%;background:var(--warn);flex:0 0 auto}.dot.ok{background:var(--ok)}.cardtitle{font-weight:800;overflow:hidden;text-overflow:ellipsis}.state{margin-left:auto;color:var(--m);font-size:10px}
 .media{position:relative;height:300px;min-height:300px;background:#000;contain:paint}.media .twitch-host,.media .twitch-host iframe{width:100%!important;height:300px!important;min-width:400px!important;min-height:300px!important;display:block;background:#000;border:0}.overlay{position:absolute;inset:0;display:grid;place-items:center;color:#8ea0bf;font-weight:800;pointer-events:none;text-shadow:0 1px 3px #000}.overlay.hide{display:none}
@@ -86,9 +86,10 @@ function applyQualityOne(player){
 function applyQuality(){for(const p of players.values())applyQualityOne(p.player)}
 
 function updateDirectMetrics(){
-  let ready=0,kbps=0,drops=0;
+  let ready=0,playing=0,kbps=0,drops=0;
   for(const p of players.values()){
     if(p.ready)ready++;
+    if(p.playing)playing++;
     try{
       const s=p.player?.getPlaybackStats?.();
       if(s){
@@ -98,7 +99,7 @@ function updateDirectMetrics(){
     }catch{}
   }
   setText($('mCpu'),String(players.size));
-  setText($('mOpen'),ready+'/'+players.size);
+  setText($('mOpen'),playing+'/'+players.size);
   if(kbps>0)setText($('mNet'),(kbps/1000).toFixed(1)+' Mbps');
   else setText($('mNet'),'-');
   setText($('mDrops'),String(Math.round(drops)));
@@ -164,8 +165,12 @@ function attachPlayer(t){
 
     player.addEventListener(Twitch.Player.READY,()=>{
       entry.ready=true;
-      try{player.setMuted(volume===0);player.setVolume(volume)}catch{}
-      applyQualityOne(player);
+      try{
+        player.setMuted(volume===0);
+        player.setVolume(volume);
+        applyQualityOne(player);
+        player.play();
+      }catch{}
       updateDirectMetrics();
     });
     player.addEventListener(Twitch.Player.PLAYING,()=>{
@@ -175,6 +180,10 @@ function attachPlayer(t){
     });
     player.addEventListener(Twitch.Player.ONLINE,()=>{
       setText(ov,'INICIANDO LIVE');
+      try{
+        player.setMuted(volume===0);
+        player.play();
+      }catch{}
     });
     player.addEventListener(Twitch.Player.OFFLINE,()=>{
       entry.playing=false;
@@ -281,7 +290,8 @@ function updateMetrics(s){
   const total=s.counts?.tenants??tenants.length, pending=total-ok-no;
   const end=lotSize?Math.min(total,lotStart+lotSize-1):total;
   const lotInfo=lotSize?' | lote '+lotStart+'-'+end:'';
-  setText($('summary'),total+' perfis'+lotInfo+' | '+players.size+' players diretos | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | vídeo Twitch → '+location.hostname);
+  const playing=[...players.values()].filter(p=>p.playing).length;
+  setText($('summary'),total+' perfis'+lotInfo+' | '+playing+'/'+players.size+' vídeos tocando | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | vídeo Twitch → '+location.hostname);
 }
 
 function applySnapshot(s,{broadcast=false}={}){
@@ -374,7 +384,15 @@ function openLotWindow(startArg,sizeArg){
   if(!w)toast('O navegador bloqueou a nova janela. Libere pop-ups para este painel.');
   return w;
 }
-window.KAEL_V38={openLot:openLotWindow};
+window.KAEL_V38={
+  openLot:openLotWindow,
+  status:()=>({
+    total:players.size,
+    ready:[...players.values()].filter(p=>p.ready).length,
+    playing:[...players.values()].filter(p=>p.playing).length,
+    channels:[...players.values()].map(p=>({channel:p.channel,ready:p.ready,playing:p.playing}))
+  })
+};
 
 async function enqueue(action,args={}){
   if(!adminKey)adminKey=prompt('Chave administrativa do KAEL Cloud:')||'';
