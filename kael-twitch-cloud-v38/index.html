@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KAEL Twitch Central Cloud V38</title>
+<script src="../kael-twitch-cloud/hls.min.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#080b11;--p:#101621;--p2:#141b29;--l:#273247;--t:#f4f7ff;--m:#92a0bb;--a:#a970ff;--ok:#42d99a;--warn:#f3b95f;--bad:#ff6074}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:13px Segoe UI,Arial,sans-serif}button,input{font:inherit}
+header{padding:16px 22px 10px;border-bottom:1px solid #171e2b}.title{font-size:25px;font-weight:900;color:var(--a)}.sub{margin-top:5px;color:var(--m)}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;padding:10px 22px}.toolbar input{height:38px;background:var(--p2);border:1px solid #35425e;color:#fff;padding:0 11px}.search{width:250px}.channel{width:175px}.qty{width:70px}
+button{height:38px;border:1px solid #28354d;background:#161d2c;color:#fff;padding:0 15px;font-weight:800;cursor:pointer}button:hover{border-color:#7957bf;background:#1c2538}.accent{border-color:#6e53a5}
+.metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:8px 22px}.metric{background:var(--p);border:1px solid #151e2e;padding:12px}.metric span{display:block;color:var(--m);font-size:11px}.metric b{display:block;font-size:18px;margin-top:10px}
+.summary{padding:7px 12px;margin-top:2px;background:#111725;border-top:1px solid #202b40;border-bottom:1px solid #202b40;color:var(--m)}.summary strong{color:var(--a);font-size:16px;margin-right:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:10px;padding:12px 22px 28px}
+.card{background:var(--p);border:1px solid #26334b;border-radius:7px;overflow:hidden;min-width:0;contain:layout paint style;content-visibility:auto;contain-intrinsic-size:245px 210px}
+.card.selected{outline:2px solid var(--a)}
+.cardhead{display:flex;align-items:center;gap:7px;height:34px;padding:0 9px;border-bottom:1px solid #273248;white-space:nowrap;overflow:hidden}.dot{width:8px;height:8px;border-radius:50%;background:var(--warn);flex:0 0 auto}.dot.ok{background:var(--ok)}.cardtitle{font-weight:800;overflow:hidden;text-overflow:ellipsis}.state{margin-left:auto;color:var(--m);font-size:10px}
+.media{position:relative;aspect-ratio:16/9;background:#000;contain:paint}.media video{width:100%;height:100%;display:block;background:#000;object-fit:contain}.overlay{position:absolute;inset:0;display:grid;place-items:center;color:#8ea0bf;font-weight:800;pointer-events:none;text-shadow:0 1px 3px #000}.overlay.hide{display:none}
+.meta{padding:7px 9px;color:var(--m);font-size:10px}.row{display:flex;justify-content:space-between;gap:10px;margin:3px 0}.good{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+body.focus .grid{grid-template-columns:minmax(500px,1100px);justify-content:center}body.focus .card:not(.selected){display:none}body.focus .media{aspect-ratio:16/9}
+#toast{position:fixed;right:18px;bottom:18px;z-index:20;background:#161f30;border:1px solid #34435f;padding:12px 15px;border-radius:9px;max-width:430px;display:none}
+@media(max-width:900px){.metrics{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.toolbar{padding:9px}.metrics,.grid{padding-left:9px;padding-right:9px}}
+@media(max-width:600px){.metrics{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.search,.channel{width:100%}}
+</style></head><body>
+<header><div class="title">KAEL / TWITCH &nbsp;|&nbsp; PERFIS ISOLADOS <small style="font-size:12px;color:#9aa7c0">CLOUD V38</small></div><div class="sub">1 tenant = 1 sessão = 1 rota/IP &nbsp;|&nbsp; HLS isolado por perfil &nbsp;|&nbsp; Central principal online</div></header>
+<div class="toolbar">
+<input id="search" class="search" placeholder="Buscar perfil / IP / canal"><input id="channel" class="channel" placeholder="@ do canal"><input id="qty" class="qty" value="1" inputmode="numeric">
+<button id="focusBtn">ABRIR / FOCAR</button><button id="loginBtn">LOGIN</button><button id="loginNextBtn">LOGIN PRÓXIMO</button><button id="closeBtn">FECHAR FOCO</button><button id="refreshBtn">ATUALIZAR</button><button id="gridBtn">GRADE</button>
+<button id="addBtn" class="accent">+ PERFIL @reallbllack</button><button id="manualBtn">+ PERFIL MANUAL</button><button id="scaleBtn">+ CRIAR ESCALA</button><button id="qualityBtn">QUALIDADE: AUTO</button><button id="volumeBtn">VOLUME: MUDO</button>
+</div>
+<section class="metrics">
+<div class="metric"><span>PERFIS</span><b id="mProfiles">-</b></div><div class="metric"><span>RAM KAEL</span><b id="mRam">-</b></div><div class="metric"><span>CPU</span><b id="mCpu">-</b></div><div class="metric"><span>REDE</span><b id="mNet">-</b></div><div class="metric"><span>ABERTURA HLS</span><b id="mOpen">-</b></div><div class="metric"><span>QUEDAS</span><b id="mDrops">-</b></div>
+</section>
+<div class="summary"><strong>MASTER | HLS ULTRA LEVE</strong><span id="summary">sincronizando...</span></div>
+<main id="grid" class="grid"></main><div id="toast"></div>
+<script src="./v38-engine.js"></script>
+</body></html>
+
+[executed on device: BlackBoss (23739a00-fa25-4a35-8e34-301494ff3a06)]
