@@ -36,8 +36,8 @@ body.focus .grid{grid-template-columns:minmax(500px,1100px);justify-content:cent
 (() => {
 'use strict';
 
-const API='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v37-public-snapshot';
-const CONTROL='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v37-control';
+const API='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v38-public-snapshot';
+const CONTROL='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v38-control';
 const REFRESH_MS=10000;
 const LEASE_MS=14000;
 const TAB_ID=(crypto.randomUUID?.()||Math.random().toString(36).slice(2));
@@ -402,8 +402,13 @@ async function enqueue(action,args={}){
   const r=await fetch(CONTROL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:adminKey,op:'enqueue',action,args})});
   const j=await r.json();
   if(!r.ok){if(r.status===401)adminKey='';throw Error(j.error||'falha')}
-  toast(action+' enviado ao worker');
-  setTimeout(()=>refresh({force:true}),2500);
+  if(j?.mode==='CLOUD_PROVISIONED'){
+    toast((j.created||1)+' perfil(is) criado(s) no cloud');
+    await refresh({force:true});
+  }else{
+    toast(action+' enviado ao controle');
+    setTimeout(()=>refresh({force:true}),2500);
+  }
 }
 
 if($('lotStart'))$('lotStart').value=String(lotStart);
