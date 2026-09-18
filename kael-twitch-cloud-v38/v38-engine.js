@@ -331,5 +331,3 @@ window.addEventListener('beforeunload',cleanupAll,{once:true});
 refresh({force:true});
 scheduleRefresh();
 })();
-
-[executed on device: BlackBoss (23739a00-fa25-4a35-8e34-301494ff3a06)]
