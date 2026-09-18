@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>KAEL Twitch Central Cloud V38</title>
-<script src="../kael-twitch-cloud/hls.min.js"></script>
+<script src="https://player.twitch.tv/js/embed/v1.js"></script>
 <style>
 :root{color-scheme:dark;--bg:#080b11;--p:#101621;--p2:#141b29;--l:#273247;--t:#f4f7ff;--m:#92a0bb;--a:#a970ff;--ok:#42d99a;--warn:#f3b95f;--bad:#ff6074}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:13px Segoe UI,Arial,sans-serif}button,input{font:inherit}
@@ -10,30 +10,30 @@ header{padding:16px 22px 10px;border-bottom:1px solid #171e2b}.title{font-size:2
 button{height:38px;border:1px solid #28354d;background:#161d2c;color:#fff;padding:0 15px;font-weight:800;cursor:pointer}button:hover{border-color:#7957bf;background:#1c2538}.accent{border-color:#6e53a5}
 .metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:8px 22px}.metric{background:var(--p);border:1px solid #151e2e;padding:12px}.metric span{display:block;color:var(--m);font-size:11px}.metric b{display:block;font-size:18px;margin-top:10px}
 .summary{padding:7px 12px;margin-top:2px;background:#111725;border-top:1px solid #202b40;border-bottom:1px solid #202b40;color:var(--m)}.summary strong{color:var(--a);font-size:16px;margin-right:10px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(245px,1fr));gap:10px;padding:12px 22px 28px}
-.card{background:var(--p);border:1px solid #26334b;border-radius:7px;overflow:hidden;min-width:0;contain:layout paint style;content-visibility:auto;contain-intrinsic-size:245px 210px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:10px;padding:12px 22px 28px}
+.card{background:var(--p);border:1px solid #26334b;border-radius:7px;overflow:hidden;min-width:400px;contain:layout paint style;content-visibility:auto;contain-intrinsic-size:400px 370px}
 .card.selected{outline:2px solid var(--a)}
 .cardhead{display:flex;align-items:center;gap:7px;height:34px;padding:0 9px;border-bottom:1px solid #273248;white-space:nowrap;overflow:hidden}.dot{width:8px;height:8px;border-radius:50%;background:var(--warn);flex:0 0 auto}.dot.ok{background:var(--ok)}.cardtitle{font-weight:800;overflow:hidden;text-overflow:ellipsis}.state{margin-left:auto;color:var(--m);font-size:10px}
-.media{position:relative;aspect-ratio:16/9;background:#000;contain:paint}.media video{width:100%;height:100%;display:block;background:#000;object-fit:contain}.overlay{position:absolute;inset:0;display:grid;place-items:center;color:#8ea0bf;font-weight:800;pointer-events:none;text-shadow:0 1px 3px #000}.overlay.hide{display:none}
+.media{position:relative;height:300px;min-height:300px;background:#000;contain:paint}.media .twitch-host,.media .twitch-host iframe{width:100%!important;height:300px!important;min-width:400px!important;min-height:300px!important;display:block;background:#000;border:0}.overlay{position:absolute;inset:0;display:grid;place-items:center;color:#8ea0bf;font-weight:800;pointer-events:none;text-shadow:0 1px 3px #000}.overlay.hide{display:none}
 .meta{padding:7px 9px;color:var(--m);font-size:10px}.row{display:flex;justify-content:space-between;gap:10px;margin:3px 0}.good{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
-body.focus .grid{grid-template-columns:minmax(500px,1100px);justify-content:center}body.focus .card:not(.selected){display:none}body.focus .media{aspect-ratio:16/9}
+body.focus .grid{grid-template-columns:minmax(500px,1100px);justify-content:center}body.focus .card:not(.selected){display:none}body.focus .media{height:min(70vh,720px)}body.focus .media .twitch-host,body.focus .media .twitch-host iframe{height:100%!important}
 #toast{position:fixed;right:18px;bottom:18px;z-index:20;background:#161f30;border:1px solid #34435f;padding:12px 15px;border-radius:9px;max-width:430px;display:none}
-@media(max-width:900px){.metrics{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.toolbar{padding:9px}.metrics,.grid{padding-left:9px;padding-right:9px}}
+@media(max-width:900px){.metrics{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:1fr}.toolbar{padding:9px}.metrics,.grid{padding-left:9px;padding-right:9px}}
 @media(max-width:600px){.metrics{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.search,.channel{width:100%}}
 </style></head><body>
-<header><div class="title">KAEL / TWITCH &nbsp;|&nbsp; PERFIS ISOLADOS <small style="font-size:12px;color:#9aa7c0">CLOUD V38</small></div><div class="sub">1 tenant = 1 sessão = 1 rota/IP &nbsp;|&nbsp; HLS isolado por perfil &nbsp;|&nbsp; Central principal online</div></header>
+<header><div class="title">KAEL / TWITCH &nbsp;|&nbsp; PERFIS ISOLADOS <small style="font-size:12px;color:#9aa7c0">CLOUD V38</small></div><div class="sub">1 card = 1 perfil monitorado &nbsp;|&nbsp; vídeo direto Twitch → navegador &nbsp;|&nbsp; Central principal online</div></header>
 <div class="toolbar">
 <input id="search" class="search" placeholder="Buscar perfil / IP / canal"><input id="channel" class="channel" placeholder="@ do canal"><input id="qty" class="qty" value="1" inputmode="numeric">
 <button id="focusBtn">ABRIR / FOCAR</button><button id="loginBtn">LOGIN</button><button id="loginNextBtn">LOGIN PRÓXIMO</button><button id="closeBtn">FECHAR FOCO</button><button id="refreshBtn">ATUALIZAR</button><button id="gridBtn">GRADE</button>
 <button id="addBtn" class="accent">+ PERFIL @reallbllack</button><button id="manualBtn">+ PERFIL MANUAL</button><button id="scaleBtn">+ CRIAR ESCALA</button><button id="qualityBtn">QUALIDADE: AUTO</button><button id="volumeBtn">VOLUME: MUDO</button><input id="lotStart" class="qty" value="1" inputmode="numeric" title="Primeiro perfil do lote"><input id="lotSize" class="qty" value="50" inputmode="numeric" title="Perfis por lote"><button id="lotBtn">ABRIR LOTE</button><button id="lotWindowBtn">NOVA JANELA</button>
 </div>
 <section class="metrics">
-<div class="metric"><span>PERFIS</span><b id="mProfiles">-</b></div><div class="metric"><span>RAM KAEL</span><b id="mRam">-</b></div><div class="metric"><span>CPU</span><b id="mCpu">-</b></div><div class="metric"><span>REDE</span><b id="mNet">-</b></div><div class="metric"><span>ABERTURA HLS</span><b id="mOpen">-</b></div><div class="metric"><span>QUEDAS</span><b id="mDrops">-</b></div>
+<div class="metric"><span>PERFIS</span><b id="mProfiles">-</b></div><div class="metric"><span>RAM JS</span><b id="mRam">-</b></div><div class="metric"><span>PLAYERS</span><b id="mCpu">-</b></div><div class="metric"><span>REDE PLAYER</span><b id="mNet">-</b></div><div class="metric"><span>PLAYER DIRETO</span><b id="mOpen">-</b></div><div class="metric"><span>QUEDAS</span><b id="mDrops">-</b></div>
 </section>
-<div class="summary"><strong>MASTER | HLS ULTRA LEVE</strong><span id="summary">sincronizando...</span></div>
+<div class="summary"><strong>MASTER | TWITCH DIRETO</strong><span id="summary">sincronizando...</span></div>
 <main id="grid" class="grid"></main><div id="toast"></div>
 <script>
-﻿(() => {
+(() => {
 'use strict';
 
 const API='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v37-public-snapshot';
@@ -45,8 +45,8 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtBytes=n=>{n=Number(n||0);return n>=1048576?(n/1048576).toFixed(1)+' MB/s':n>=1024?(n/1024).toFixed(0)+' KB/s':n+' B/s'};
 
-let snap=null, selected=null, adminKey='', volume=0, quality='auto', mediaBase=null;
-let refreshTimer=0, refreshAbort=null, refreshInFlight=false, lastSnapshotAt=0, isLeader=false, lastOrderKey='';
+let snap=null, selected=null, adminKey='', volume=0, quality='auto';
+let refreshTimer=0, refreshAbort=null, refreshInFlight=false, lastSnapshotAt=0, isLeader=false, lastOrderKey='', statsTimer=0;
 const query=new URLSearchParams(location.search);
 let lotStart=Math.max(1,Math.floor(Number(query.get('start')||1)));
 let lotSize=query.has('size')?Math.max(1,Math.floor(Number(query.get('size')||50))):null;
@@ -60,115 +60,152 @@ function toast(s){const x=$('toast');x.textContent=s;x.style.display='block';cle
 function setText(el,value){if(el && el.textContent!==String(value))el.textContent=String(value)}
 function setClass(el,name,on){if(el)el.classList.toggle(name,!!on)}
 
-function playerUrl(t,base){return base+'/tenant-hls/'+encodeURIComponent(t.tenant_id)+'/index.m3u8'}
-
-function applyQualityOne(h){
-  if(!h)return;
+function qualityToken(q){
+  if(typeof q==='string')return q;
+  return String(q?.group||q?.name||q?.value||'');
+}
+function qualityScore(q){
+  const s=String(q||'').toLowerCase();
+  if(s==='chunked'||s.includes('source'))return 99999;
+  const m=s.match(/(\d{3,4})p/);
+  return m?Number(m[1]):0;
+}
+function applyQualityOne(player){
+  if(!player)return;
   try{
-    if(quality==='auto')h.currentLevel=-1;
-    else if(h.levels.length)h.currentLevel=quality==='minimum'?0:Math.min(1,h.levels.length-1);
+    if(quality==='auto'){
+      try{player.setQuality('auto')}catch{}
+      return;
+    }
+    const qs=(player.getQualities?.()||[]).map(qualityToken).filter(Boolean).sort((a,b)=>qualityScore(a)-qualityScore(b));
+    if(!qs.length)return;
+    const target=quality==='minimum'?qs[0]:qs[Math.min(1,qs.length-1)];
+    if(target)player.setQuality(target);
   }catch{}
 }
-function applyQuality(){for(const p of players.values())applyQualityOne(p.hls)}
+function applyQuality(){for(const p of players.values())applyQualityOne(p.player)}
+
+function updateDirectMetrics(){
+  let ready=0,kbps=0,drops=0;
+  for(const p of players.values()){
+    if(p.ready)ready++;
+    try{
+      const s=p.player?.getPlaybackStats?.();
+      if(s){
+        kbps+=Number(s.playbackRate||0);
+        drops+=Number(s.skippedFrames||0);
+      }
+    }catch{}
+  }
+  setText($('mCpu'),String(players.size));
+  setText($('mOpen'),ready+'/'+players.size);
+  if(kbps>0)setText($('mNet'),(kbps/1000).toFixed(1)+' Mbps');
+  else setText($('mNet'),'-');
+  setText($('mDrops'),String(Math.round(drops)));
+  try{
+    const mem=performance.memory?.usedJSHeapSize;
+    setText($('mRam'),mem?Math.round(mem/1048576)+' MB':'-');
+  }catch{setText($('mRam'),'-')}
+}
 
 function cleanupPlayer(id){
   const p=players.get(id);
   if(!p)return;
-  clearTimeout(p.retryTimer);
-  try{p.abort?.abort()}catch{}
-  try{p.hls?.destroy()}catch{}
-  try{
-    p.video.pause();
-    p.video.removeAttribute('src');
-    p.video.load();
-  }catch{}
+  try{p.host?.replaceChildren()}catch{}
   players.delete(id);
+  updateDirectMetrics();
 }
 
 function cleanupAll(){
   clearTimeout(refreshTimer);
+  clearInterval(statsTimer);
   try{refreshAbort?.abort()}catch{}
   for(const id of [...players.keys()])cleanupPlayer(id);
+  try{
+    const lease=JSON.parse(localStorage.getItem(leaseKey())||'null');
+    if(lease?.id===TAB_ID)localStorage.removeItem(leaseKey());
+  }catch{}
   try{channel?.close()}catch{}
 }
 
-function attachPlayer(t,base){
-  if(!base || players.has(t.tenant_id))return;
+function attachPlayer(t){
+  if(players.has(t.tenant_id))return;
   const card=cards.get(t.tenant_id);
   if(!card)return;
-  const video=card.video, ov=card.overlay;
-  const url=playerUrl(t,base);
-  let h=null, retry=0, retryTimer=0;
-  const abort=new AbortController();
-
-  video.autoplay=true;
-  video.playsInline=true;
-  video.muted=volume===0;
-  video.volume=volume;
-  video.preload='auto';
-
-  const live=()=>{retry=0;setClass(ov,'hide',true)};
-  const wait=()=>{setClass(ov,'hide',false);setText(ov,'CARREGANDO HLS')};
-  const error=()=>{setClass(ov,'hide',false);setText(ov,'RECONECTANDO')};
-  video.addEventListener('playing',live,{signal:abort.signal});
-  video.addEventListener('waiting',wait,{signal:abort.signal});
-  video.addEventListener('error',error,{signal:abort.signal});
-
-  const scheduleRetry=()=>{
-    clearTimeout(retryTimer);
-    const delay=Math.min(12000,750*Math.pow(2,Math.min(retry++,4)));
-    retryTimer=setTimeout(()=>{
-      const p=players.get(t.tenant_id);
-      if(!p)return;
-      try{p.hls?.startLoad()}catch{}
-      try{p.video.play().catch(()=>{})}catch{}
-    },delay);
-    const p=players.get(t.tenant_id);
-    if(p)p.retryTimer=retryTimer;
-  };
-
-  if(window.Hls&&Hls.isSupported()){
-    h=new Hls({
-      enableWorker:true,
-      lowLatencyMode:false,
-      capLevelToPlayerSize:true,
-      maxBufferLength:8,
-      maxMaxBufferLength:12,
-      backBufferLength:2,
-      liveSyncDurationCount:3,
-      liveMaxLatencyDurationCount:6,
-      manifestLoadingMaxRetry:8,
-      levelLoadingMaxRetry:6,
-      fragLoadingMaxRetry:6
-    });
-    h.attachMedia(video);
-    h.on(Hls.Events.MEDIA_ATTACHED,()=>h.loadSource(url));
-    h.on(Hls.Events.MANIFEST_PARSED,()=>{applyQualityOne(h);video.play().catch(()=>{})});
-    h.on(Hls.Events.ERROR,(_,d)=>{
-      if(!d.fatal)return;
-      if(d.type===Hls.ErrorTypes.MEDIA_ERROR){try{h.recoverMediaError()}catch{scheduleRetry()}}
-      else scheduleRetry();
-    });
-  } else if(video.canPlayType('application/vnd.apple.mpegurl')){
-    video.src=url;
-    video.play().catch(()=>{});
+  const host=card.playerHost, ov=card.overlay;
+  const channelName=String(t.target_channel||'').replace(/^@/,'').trim();
+  if(!channelName){
+    setClass(ov,'hide',false);
+    setText(ov,'CANAL NÃO CONFIGURADO');
+    return;
   }
+  if(!window.Twitch?.Player){
+    setClass(ov,'hide',false);
+    setText(ov,'CARREGANDO PLAYER TWITCH');
+    setTimeout(()=>{if(!players.has(t.tenant_id))attachPlayer(t)},500);
+    return;
+  }
+  const hostId='tw-'+String(t.tenant_id).replace(/[^a-zA-Z0-9_-]/g,'');
+  host.id=hostId;
+  host.replaceChildren();
+  setClass(ov,'hide',false);
+  setText(ov,'CONECTANDO TWITCH');
+  try{
+    const player=new Twitch.Player(hostId,{
+      width:'100%',
+      height:'100%',
+      channel:channelName,
+      parent:[location.hostname],
+      autoplay:true,
+      muted:volume===0
+    });
+    const entry={player,host,channel:channelName,ready:false,playing:false};
+    players.set(t.tenant_id,entry);
 
-  players.set(t.tenant_id,{video,hls:h,base,url,abort,retryTimer});
+    player.addEventListener(Twitch.Player.READY,()=>{
+      entry.ready=true;
+      try{player.setMuted(volume===0);player.setVolume(volume)}catch{}
+      applyQualityOne(player);
+      updateDirectMetrics();
+    });
+    player.addEventListener(Twitch.Player.PLAYING,()=>{
+      entry.playing=true;
+      setClass(ov,'hide',true);
+      updateDirectMetrics();
+    });
+    player.addEventListener(Twitch.Player.ONLINE,()=>{
+      setText(ov,'INICIANDO LIVE');
+    });
+    player.addEventListener(Twitch.Player.OFFLINE,()=>{
+      entry.playing=false;
+      setClass(ov,'hide',false);
+      setText(ov,'CANAL OFFLINE');
+      updateDirectMetrics();
+    });
+    player.addEventListener(Twitch.Player.PLAYBACK_BLOCKED,()=>{
+      setClass(ov,'hide',false);
+      setText(ov,'CLIQUE NO PLAYER PARA REPRODUZIR');
+    });
+    updateDirectMetrics();
+  }catch(e){
+    setClass(ov,'hide',false);
+    setText(ov,'ERRO PLAYER TWITCH');
+    console.error('V38 Twitch player',t.tenant_id,e);
+  }
 }
 
 function createCard(t){
   const article=document.createElement('article');
   article.className='card';
   article.dataset.id=t.tenant_id;
-  article.innerHTML='<div class="cardhead"><i class="dot"></i><span class="cardtitle"></span><span class="state"></span></div><div class="media"><video muted></video><div class="overlay"></div></div><div class="meta"><div class="row"><span>Login</span><b class="login"></b></div><div class="row"><span>Sessão</span><span class="session"></span></div><div class="row"><span>Rota</span><span class="route"></span></div></div>';
+  article.innerHTML='<div class="cardhead"><i class="dot"></i><span class="cardtitle"></span><span class="state"></span></div><div class="media"><div class="twitch-host"></div><div class="overlay"></div></div><div class="meta"><div class="row"><span>Login</span><b class="login"></b></div><div class="row"><span>Sessão</span><span class="session"></span></div><div class="row"><span>Rota</span><span class="route"></span></div></div>';
   $('grid').appendChild(article);
   const ref={
     root:article,
     dot:article.querySelector('.dot'),
     title:article.querySelector('.cardtitle'),
     state:article.querySelector('.state'),
-    video:article.querySelector('video'),
+    playerHost:article.querySelector('.twitch-host'),
     overlay:article.querySelector('.overlay'),
     login:article.querySelector('.login'),
     session:article.querySelector('.session'),
@@ -180,21 +217,25 @@ function createCard(t){
 
 function updateCard(t){
   const c=cards.get(t.tenant_id)||createCard(t);
-  setClass(c.dot,'ok',!!t.worker_online);
+  setClass(c.dot,'ok',true);
   setText(c.title,'@'+(t.target_channel??'')+' | '+(t.display_name??'')+' | '+(t.network_mode??'')+' | '+(t.masked_ip??''));
-  setText(c.state,t.state??'');
+  setText(c.state,'DIRETO');
   setText(c.login,t.login_state??'');
   c.login.className='login '+(t.login_state==='LOGIN OK'?'good':'warn');
   setText(c.session,t.session_state??'');
   setText(c.route,t.route_state??'');
   c.route.className='route '+(t.route_state==='HEALTHY'?'good':'bad');
   setClass(c.root,'selected',t.tenant_id===selected);
-  if(!mediaBase){
+  const current=players.get(t.tenant_id);
+  const desired=String(t.target_channel||'').replace(/^@/,'').trim();
+  if(!current){
+    setText(c.overlay,'CONECTANDO TWITCH');
+    attachPlayer(t);
+  }else if(current.channel!==desired && desired){
+    current.channel=desired;
     setClass(c.overlay,'hide',false);
-    setText(c.overlay,'SEM GATEWAY DE MÍDIA');
-  } else if(!players.has(t.tenant_id)){
-    setText(c.overlay,'CONECTANDO HLS');
-    attachPlayer(t,mediaBase);
+    setText(c.overlay,'TROCANDO CANAL');
+    try{current.player.setChannel(desired)}catch{}
   }
 }
 
@@ -217,12 +258,6 @@ function reconcileTenants(s){
     }
   }
 
-  const nextBase=s.media_base_url||null;
-  if(nextBase!==mediaBase){
-    mediaBase=nextBase;
-    for(const id of [...players.keys()])cleanupPlayer(id);
-  }
-
   for(const t of list)updateCard(t);
   const orderKey=list.map(t=>t.tenant_id).join('|');
   if(orderKey!==lastOrderKey){
@@ -238,12 +273,7 @@ function reconcileTenants(s){
 
 function updateMetrics(s){
   setText($('mProfiles'),s.counts?.tenants??0);
-  const ram=s.metrics?.kael_ram_mb;
-  setText($('mRam'),ram==null?'-':(ram>=1024?(ram/1024).toFixed(1)+' GB':ram+' MB'));
-  setText($('mCpu'),s.metrics?.cpu_pct==null?'-':s.metrics.cpu_pct+'%');
-  setText($('mNet'),fmtBytes(s.metrics?.net_bps));
-  setText($('mOpen'),s.metrics?.hls_probe_ms==null?'-':(s.metrics.hls_probe_ms/1000).toFixed(2)+' s');
-  setText($('mDrops'),s.metrics?.drops??'-');
+  updateDirectMetrics();
 
   const tenants=s.tenants||[];
   let ok=0,no=0;
@@ -251,7 +281,7 @@ function updateMetrics(s){
   const total=s.counts?.tenants??tenants.length, pending=total-ok-no;
   const end=lotSize?Math.min(total,lotStart+lotSize-1):total;
   const lotInfo=lotSize?' | lote '+lotStart+'-'+end:'';
-  setText($('summary'),total+' perfis'+lotInfo+' | '+(s.metrics?.sources??0)+' origens isoladas | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | '+(s.metrics?.fps??'-')+' FPS | '+(s.metrics?.pipelines??0)+' pipelines | worker '+(s.counts?.online_workers?'ONLINE':'OFFLINE'));
+  setText($('summary'),total+' perfis'+lotInfo+' | '+players.size+' players diretos | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | vídeo Twitch → '+location.hostname);
 }
 
 function applySnapshot(s,{broadcast=false}={}){
@@ -318,7 +348,7 @@ function focus(){
   document.body.classList.add('focus');
   for(const [id,c] of cards)setClass(c.root,'selected',id===selected);
   const p=players.get(selected);
-  if(p){p.video.muted=volume===0;p.video.volume=volume}
+  if(p){try{p.player.setMuted(volume===0);p.player.setVolume(volume)}catch{}}
 }
 function closeFocus(){document.body.classList.remove('focus')}
 
@@ -384,8 +414,11 @@ $('volumeBtn').onclick=()=>{
   volume=volume===0?.25:volume===.25?.5:volume===.5?1:0;
   $('volumeBtn').textContent=volume===0?'VOLUME: MUDO':'VOLUME: '+Math.round(volume*100)+'%';
   for(const p of players.values()){
-    p.video.volume=volume;p.video.muted=volume===0;
-    if(volume>0)p.video.play().catch(()=>{});
+    try{
+      p.player.setVolume(volume);
+      p.player.setMuted(volume===0);
+      if(volume>0)p.player.play();
+    }catch{}
   }
 };
 $('loginBtn').onclick=()=>toast('Login isolado: estado sincronizado. A janela de autenticação remota segura ainda está sendo migrada para o cloud.');
@@ -395,7 +428,11 @@ if(channel){
   channel.onmessage=e=>{
     const m=e.data;
     if(m?.type==='snapshot' && m.from!==TAB_ID && m.at>=lastSnapshotAt)applySnapshot(m.data);
+    else if(m?.type==='hello' && m.from!==TAB_ID && snap){
+      try{channel.postMessage({type:'snapshot',from:TAB_ID,at:lastSnapshotAt||Date.now(),data:snap})}catch{}
+    }
   };
+  try{channel.postMessage({type:'hello',from:TAB_ID})}catch{}
 }
 window.addEventListener('storage',e=>{
   if(e.key===leaseKey())acquireLease();
@@ -403,7 +440,11 @@ window.addEventListener('storage',e=>{
 window.addEventListener('pagehide',cleanupAll,{once:true});
 window.addEventListener('beforeunload',cleanupAll,{once:true});
 
-refresh({force:true});
+if(channel){
+  setTimeout(()=>{if(!snap)refresh()},450);
+  setTimeout(()=>{if(!snap)refresh({force:true})},2500);
+}else refresh({force:true});
+statsTimer=setInterval(updateDirectMetrics,5000);
 scheduleRefresh();
 })();
 </script>
