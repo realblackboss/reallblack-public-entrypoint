@@ -38,6 +38,7 @@ body.focus .grid{grid-template-columns:minmax(500px,1100px);justify-content:cent
 
 const API='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v38-public-snapshot';
 const CONTROL='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v38-control';
+const EGRESS_API='https://qfkcripudkcmsdxrhdbt.supabase.co/functions/v1/kael-v38-egress';
 const REFRESH_MS=10000;
 const LEASE_MS=14000;
 const TAB_ID=(crypto.randomUUID?.()||Math.random().toString(36).slice(2));
@@ -45,7 +46,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtBytes=n=>{n=Number(n||0);return n>=1048576?(n/1048576).toFixed(1)+' MB/s':n>=1024?(n/1024).toFixed(0)+' KB/s':n+' B/s'};
 
-let snap=null, selected=null, adminKey='', volume=0, quality='auto';
+let snap=null, selected=null, adminKey='', volume=0, quality='auto', deviceEgressIp='IP PENDENTE', egressSource='';
 let refreshTimer=0, refreshAbort=null, refreshInFlight=false, lastSnapshotAt=0, isLeader=false, lastOrderKey='', statsTimer=0;
 const query=new URLSearchParams(location.search);
 let lotStart=Math.max(1,Math.floor(Number(query.get('start')||1)));
@@ -59,6 +60,39 @@ function toast(s){const x=$('toast');x.textContent=s;x.style.display='block';cle
 
 function setText(el,value){if(el && el.textContent!==String(value))el.textContent=String(value)}
 function setClass(el,name,on){if(el)el.classList.toggle(name,!!on)}
+
+function tenantEgressIp(t){
+  return String(t?.node_ip||t?.egress_ip||deviceEgressIp||t?.masked_ip||'IP PENDENTE');
+}
+function refreshEgressVisuals(){
+  for(const [id,c] of cards){
+    const t=tenantMap.get(id);
+    if(!t)continue;
+    const ip=tenantEgressIp(t);
+    setText(c.title,'@'+(t.target_channel??'')+' | '+(t.display_name??'')+' | '+(t.network_mode??'TWITCH_EMBED_DIRECT')+' | '+ip);
+    setText(c.route,(t.egress_isolated?'NODE_EGRESS':'DEVICE_EGRESS')+' | '+ip);
+    c.route.className='route good';
+  }
+  if(snap)updateMetrics(snap);
+}
+async function loadEgress(){
+  try{
+    const r=await fetch(EGRESS_API,{cache:'no-store'});
+    if(!r.ok)throw Error('HTTP '+r.status);
+    const j=await r.json();
+    if(j?.ip){
+      deviceEgressIp=String(j.ip);
+      egressSource=String(j.source||'edge-request');
+      refreshEgressVisuals();
+      return deviceEgressIp;
+    }
+  }catch(e){
+    console.warn('V38 egress detect',e);
+  }
+  deviceEgressIp='IP INDISPONÍVEL';
+  refreshEgressVisuals();
+  return null;
+}
 
 function qualityToken(q){
   if(typeof q==='string')return q;
@@ -228,14 +262,15 @@ function createCard(t){
 
 function updateCard(t){
   const c=cards.get(t.tenant_id)||createCard(t);
+  const ip=tenantEgressIp(t);
   setClass(c.dot,'ok',true);
-  setText(c.title,'@'+(t.target_channel??'')+' | '+(t.display_name??'')+' | '+(t.network_mode??'')+' | '+(t.masked_ip??''));
+  setText(c.title,'@'+(t.target_channel??'')+' | '+(t.display_name??'')+' | '+(t.network_mode??'TWITCH_EMBED_DIRECT')+' | '+ip);
   setText(c.state,'DIRETO');
   setText(c.login,t.login_state??'');
   c.login.className='login '+(t.login_state==='LOGIN OK'?'good':'warn');
   setText(c.session,t.session_state??'');
-  setText(c.route,t.route_state??'');
-  c.route.className='route '+(t.route_state==='HEALTHY'?'good':'bad');
+  setText(c.route,(t.egress_isolated?'NODE_EGRESS':'DEVICE_EGRESS')+' | '+ip);
+  c.route.className='route good';
   setClass(c.root,'selected',t.tenant_id===selected);
   const current=players.get(t.tenant_id);
   const desired=String(t.target_channel||'').replace(/^@/,'').trim();
@@ -293,7 +328,7 @@ function updateMetrics(s){
   const end=lotSize?Math.min(total,lotStart+lotSize-1):total;
   const lotInfo=lotSize?' | lote '+lotStart+'-'+end:'';
   const playing=[...players.values()].filter(p=>p.playing).length;
-  setText($('summary'),total+' perfis'+lotInfo+' | '+playing+'/'+players.size+' vídeos tocando | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | vídeo Twitch → '+location.hostname);
+  setText($('summary'),total+' perfis'+lotInfo+' | '+playing+'/'+players.size+' vídeos tocando | '+ok+' login OK | '+pending+' login pendente | '+no+' sem login | egress '+deviceEgressIp+' | vídeo Twitch → '+location.hostname);
 }
 
 function applySnapshot(s,{broadcast=false}={}){
@@ -310,7 +345,7 @@ function filterCards(){
   const q=$('search').value.trim().toLowerCase();
   for(const [id,c] of cards){
     const t=tenantMap.get(id);
-    const hay=((t?.display_name||'')+' '+(t?.target_channel||'')+' '+(t?.masked_ip||'')+' '+(t?.network_mode||'')).toLowerCase();
+    const hay=((t?.display_name||'')+' '+(t?.target_channel||'')+' '+tenantEgressIp(t)+' '+(t?.network_mode||'')).toLowerCase();
     c.root.style.display=!q||hay.includes(q)?'':'none';
   }
 }
@@ -465,11 +500,13 @@ window.addEventListener('storage',e=>{
 window.addEventListener('pagehide',cleanupAll,{once:true});
 window.addEventListener('beforeunload',cleanupAll,{once:true});
 
+loadEgress();
 if(channel){
   setTimeout(()=>{if(!snap)refresh()},450);
   setTimeout(()=>{if(!snap)refresh({force:true})},2500);
 }else refresh({force:true});
 statsTimer=setInterval(updateDirectMetrics,5000);
+setInterval(loadEgress,60000);
 scheduleRefresh();
 })();
 </script>
