@@ -60,7 +60,9 @@ function updateDirectMetrics(){
       if(s){
         kbps+=Number(s.playbackRate||0);
         drops+=Number(s.skippedFrames||0);
+        if(Number(s.playbackRate||0)>0)p.playing=true;
       }
+      if(p.player?.isPaused && p.player.isPaused()===false)p.playing=true;
     }catch{}
   }
   setText($('mCpu'),String(players.size));
@@ -323,7 +325,7 @@ function focus(){
   document.body.classList.add('focus');
   for(const [id,c] of cards)setClass(c.root,'selected',id===selected);
   const p=players.get(selected);
-  if(p){try{p.player.setMuted(volume===0);p.player.setVolume(volume)}catch{}}
+  if(p){try{p.player.setMuted(volume===0);p.player.setVolume(volume);p.player.play()}catch{}}
 }
 function closeFocus(){document.body.classList.remove('focus')}
 
