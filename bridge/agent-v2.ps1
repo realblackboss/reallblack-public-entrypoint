@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.0.0'
+$Version = '4.0.1'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -43,17 +43,13 @@ function Decode-Json([string]$Base64) {
 }
 
 function Post-Comment([string]$Body) {
-  $tmp = Join-Path $BaseDir 'comment-out.json'
   try {
-    @{ body = $Body } | ConvertTo-Json -Compress | Set-Content -Path $tmp -Encoding UTF8
-    $null = & gh api -X POST ("repos/{0}/issues/{1}/comments" -f $Repo,$Issue) --input $tmp 2>$null
+    $null = & gh api -X POST ("repos/{0}/issues/{1}/comments" -f $Repo,$Issue) -f ("body={0}" -f $Body) 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'github_post_failed' }
     return $true
   } catch {
     Write-Log ('Post falhou: ' + $_.Exception.Message)
     return $false
-  } finally {
-    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
   }
 }
 
