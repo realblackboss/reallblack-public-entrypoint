@@ -59,7 +59,13 @@ $RawHeaders = @{
 
 $manifestUri = $ApiBase + '/repos/' + $PublicRepo + '/contents/' + $ManifestPath + '?ref=main'
 $manifestResponse = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $manifestUri -Headers $RawHeaders -TimeoutSec 20
-$manifest = ([string]$manifestResponse.Content) | ConvertFrom-Json
+$manifestRaw = $manifestResponse.Content
+if ($manifestRaw -is [byte[]]) {
+  $manifestText = [Text.Encoding]::UTF8.GetString($manifestRaw)
+} else {
+  $manifestText = [string]$manifestRaw
+}
+$manifest = $manifestText | ConvertFrom-Json
 if ([string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
   throw 'Manifesto da ponte invalido.'
 }
