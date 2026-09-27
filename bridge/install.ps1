@@ -57,7 +57,7 @@ $RawHeaders = @{
   'User-Agent' = 'REALLBLACK-Bridge-Installer'
 }
 
-$manifestUri = "$ApiBase/repos/$PublicRepo/contents/$ManifestPath?ref=main"
+$manifestUri = $ApiBase + '/repos/' + $PublicRepo + '/contents/' + $ManifestPath + '?ref=main'
 $manifestResponse = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $manifestUri -Headers $RawHeaders -TimeoutSec 20
 $manifest = ([string]$manifestResponse.Content) | ConvertFrom-Json
 if ([string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
@@ -66,7 +66,7 @@ if ([string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
 
 $tmpAgent = Join-Path $Dir 'agent-v2.download.ps1'
 Remove-Item $tmpAgent -Force -ErrorAction SilentlyContinue
-$agentUri = "$ApiBase/repos/$PublicRepo/contents/$PublicAgentPath?ref=main"
+$agentUri = $ApiBase + '/repos/' + $PublicRepo + '/contents/' + $PublicAgentPath + '?ref=main'
 Invoke-WebRequest -UseBasicParsing -Method Get -Uri $agentUri -Headers $RawHeaders -OutFile $tmpAgent -TimeoutSec 25
 
 $downloadHash = (Get-FileHash $tmpAgent -Algorithm SHA256).Hash.ToLowerInvariant()
