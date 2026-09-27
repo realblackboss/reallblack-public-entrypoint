@@ -89,16 +89,33 @@ if (-not (Test-ScriptSyntax $tmpAgent)) {
 try { Disable-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -ErrorAction SilentlyContinue | Out-Null } catch {}
 try { Stop-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -ErrorAction SilentlyContinue | Out-Null } catch {}
 
-Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+$bridgeProcs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
   Where-Object {
     $_.CommandLine -like '*ReallBlackBridge*desktop-folder-agent.ps1*' -or
     $_.CommandLine -like '*ReallBlackBridge*agent-v2.ps1*' -or
     $_.CommandLine -like '*ReallBlackBridge*watchdog-v2.ps1*'
-  } |
-  ForEach-Object {
-    try { Stop-Process -Id $_.ProcessId -Force } catch {}
-  }
-Start-Sleep -Milliseconds 400
+  })
+
+foreach ($bp in $bridgeProcs) {
+  try { Stop-Process -Id $bp.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+}
+
+$stopDeadline = (Get-Date).AddSeconds(12)
+do {
+  Start-Sleep -Milliseconds 250
+  $remaining = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+    Where-Object {
+      $_.CommandLine -like '*ReallBlackBridge*desktop-folder-agent.ps1*' -or
+      $_.CommandLine -like '*ReallBlackBridge*agent-v2.ps1*' -or
+      $_.CommandLine -like '*ReallBlackBridge*watchdog-v2.ps1*'
+    })
+} while ($remaining.Count -gt 0 -and (Get-Date) -lt $stopDeadline)
+
+if ($remaining.Count -gt 0) {
+  throw ('Nao foi possivel encerrar a ponte anterior. PIDs: ' + (($remaining | ForEach-Object { $_.ProcessId }) -join ','))
+}
+
+Start-Sleep -Seconds 1
 
 if (Test-Path $Agent -PathType Leaf) {
   if (Test-ScriptSyntax $Agent) {
