@@ -1309,3 +1309,4 @@ while ($true) {
   Start-Sleep -Milliseconds $pollDelayMs
 }
 # manifest-trigger-v35
+# final-validation-trigger-v38
