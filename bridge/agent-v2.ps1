@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '2.6.0'
+$Version = '2.7.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -9,6 +9,8 @@ $BaseDir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
 $StateFile = Join-Path $BaseDir 'state-v2.json'
 $LogFile = Join-Path $BaseDir 'bridge-v2.log'
 $AgentFile = Join-Path $BaseDir 'agent-v2.ps1'
+$HealthFile = Join-Path $BaseDir 'health-v2.json'
+$WatchdogFile = Join-Path $BaseDir 'watchdog-v2.ps1'
 $ManifestUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/manifest-v2.json'
 $ApiBase = 'https://api.github.com'
 
@@ -20,6 +22,68 @@ $Roots = @{
   documents = [Environment]::GetFolderPath('MyDocuments')
   downloads = Join-Path $env:USERPROFILE 'Downloads'
   bridge    = $BaseDir
+}
+
+function Ensure-Watchdog {
+  try {
+    $watchdogCode = @'
+$ErrorActionPreference = 'SilentlyContinue'
+$BaseDir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
+$AgentFile = Join-Path $BaseDir 'agent-v2.ps1'
+$HealthFile = Join-Path $BaseDir 'health-v2.json'
+$mutex = New-Object System.Threading.Mutex($false, 'Local\REALLBLACK_BRIDGE_WATCHDOG_V2')
+if (-not $mutex.WaitOne(0)) { exit }
+
+while ($true) {
+  $restart = $false
+  $procs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+    Where-Object { $_.CommandLine -like '*ReallBlackBridge*agent-v2.ps1*' })
+
+  if ($procs.Count -eq 0) {
+    $restart = $true
+  } elseif (Test-Path $HealthFile) {
+    try {
+      $age = ((Get-Date) - (Get-Item $HealthFile).LastWriteTime).TotalSeconds
+      if ($age -gt 60) {
+        foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force } catch {} }
+        $restart = $true
+      }
+    } catch {}
+  }
+
+  if ($restart -and (Test-Path $AgentFile)) {
+    Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$AgentFile) -WindowStyle Hidden
+  }
+
+  Start-Sleep -Seconds 15
+}
+'@
+
+    Set-Content -Path $WatchdogFile -Value $watchdogCode -Encoding UTF8
+    $startup = [Environment]::GetFolderPath('Startup')
+    $launch = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $WatchdogFile + '"'
+    Set-Content -Path (Join-Path $startup 'REALLBLACK-BRIDGE-WATCHDOG.cmd') -Value ('@echo off' + [Environment]::NewLine + $launch) -Encoding ASCII
+
+    $existing = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+      Where-Object { $_.CommandLine -like '*ReallBlackBridge*watchdog-v2.ps1*' })
+    if ($existing.Count -eq 0) {
+      Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$WatchdogFile) -WindowStyle Hidden
+    }
+  } catch {
+    Write-Log ('Watchdog setup falhou: ' + $_.Exception.Message)
+  }
+}
+
+function Write-Health([int]$PollDelayMs) {
+  try {
+    @{
+      version = $Version
+      pid = $PID
+      pollDelayMs = $PollDelayMs
+      machine = $env:COMPUTERNAME
+      timestamp = (Get-Date).ToString('o')
+    } | ConvertTo-Json -Compress | Set-Content -Path $HealthFile -Encoding UTF8
+  } catch {}
 }
 
 function Write-Log([string]$Message) {
@@ -71,9 +135,13 @@ function Poll-Comments([datetime]$Since) {
 
 function Post-Comment([string]$Body) {
   try {
-    @{ body = $Body } | ConvertTo-Json -Compress | gh api --method POST "repos/$Repo/issues/$Issue/comments" --input - *> $null
-    return ($LASTEXITCODE -eq 0)
-  } catch { return $false }
+    $payload = @{ body = $Body } | ConvertTo-Json -Compress
+    Invoke-RestMethod -UseBasicParsing -Method Post -Uri "$ApiBase/repos/$Repo/issues/$Issue/comments" -Headers $script:GitHubHeaders -ContentType 'application/json' -Body $payload -TimeoutSec 15 | Out-Null
+    return $true
+  } catch {
+    Write-Log ('Post falhou: ' + $_.Exception.Message)
+    return $false
+  }
 }
 
 function Encode-Json($Object) {
@@ -313,6 +381,7 @@ function Check-SelfUpdate {
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
 Initialize-GitHubApi
+Ensure-Watchdog
 
 $state = Get-State
 $lastId = [long]$state.lastCommentId
@@ -330,6 +399,7 @@ $lastUpdateCheck = Get-Date
 $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-10)
 $pollDelayMs = 4000
 $activeUntil = (Get-Date).AddSeconds(10)
+$lastHealthWrite = (Get-Date).AddMinutes(-1)
 
 while ($true) {
   try {
@@ -395,6 +465,11 @@ while ($true) {
     } else {
       $pollDelayMs = [Math]::Min([Math]::Max($pollDelayMs * 2, 3000), 30000)
     }
+  }
+
+  if (((Get-Date) - $lastHealthWrite).TotalSeconds -ge 10) {
+    Write-Health $pollDelayMs
+    $lastHealthWrite = Get-Date
   }
 
   if (((Get-Date) - $lastUpdateCheck).TotalMinutes -ge 2) {
