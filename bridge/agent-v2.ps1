@@ -284,7 +284,7 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
       $max = [Math]::Max(1,[Math]::Min($max,300))
       $path = Resolve-ReadPath $rootName $relative
       if (-not (Test-Path -LiteralPath $path -PathType Container)) { throw 'directory_not_found' }
-      $items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop | Sort-Object PSIsContainer -Descending, Name | Select-Object -First $max | ForEach-Object {
+      $items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop | Sort-Object -Property @{Expression='PSIsContainer';Descending=$true}, Name | Select-Object -First $max | ForEach-Object {
         [ordered]@{
           name = $_.Name
           type = if ($_.PSIsContainer) { 'dir' } else { 'file' }
