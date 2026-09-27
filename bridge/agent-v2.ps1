@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '2.2.0'
+$Version = '2.3.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -9,10 +9,11 @@ $BaseDir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
 $StateFile = Join-Path $BaseDir 'state-v2.json'
 $LogFile = Join-Path $BaseDir 'bridge-v2.log'
 $AgentFile = Join-Path $BaseDir 'agent-v2.ps1'
-$AgentUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/agent-v2.ps1'
+$ManifestUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/manifest-v2.json'
 
 $script:BridgeMutex = New-Object System.Threading.Mutex($false, 'Local\REALLBLACK_BRIDGE_V2')
 if (-not $script:BridgeMutex.WaitOne(0)) { exit }
+$script:StartTime = Get-Date
 
 $Roots = @{
   desktop   = [Environment]::GetFolderPath('Desktop')
@@ -127,7 +128,7 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
     }
 
     'BRIDGE_INFO' {
-      return @{ version = $Version; pid = $PID; roots = @($Roots.Keys); pollMs = 1500 }
+      return @{ version = $Version; pid = $PID; roots = @($Roots.Keys); activePollMs = 1500; idlePollMs = 7000; uptimeSec = [int]((Get-Date) - $script:StartTime).TotalSeconds }
     }
 
     'SYSINFO' {
@@ -160,7 +161,7 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
     'LIST' {
       $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
       if (-not (Test-Path $p -PathType Container)) { throw 'directory_not_found' }
-      $items = Get-ChildItem -LiteralPath $p -Force | Select-Object -First 500 | ForEach-Object {
+      $items = Get-ChildItem -LiteralPath $p -Force | Select-Object -First 200 | ForEach-Object {
         [ordered]@{
           name = $_.Name
           type = if ($_.PSIsContainer) { 'dir' } else { 'file' }
@@ -175,7 +176,7 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
       $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
       if (-not (Test-Path $p -PathType Leaf)) { throw 'file_not_found' }
       $item = Get-Item -LiteralPath $p
-      if ($item.Length -gt 262144) { throw 'file_too_large' }
+      if ($item.Length -gt 32768) { throw 'file_too_large' }
       return @{ path = $p; text = (Get-Content -LiteralPath $p -Raw -ErrorAction Stop) }
     }
 
@@ -220,7 +221,7 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
     }
 
     'PROC_LIST' {
-      $items = Get-Process | Sort-Object CPU -Descending | Select-Object -First 200 | ForEach-Object {
+      $items = Get-Process | Sort-Object CPU -Descending | Select-Object -First 100 | ForEach-Object {
         [ordered]@{
           pid = $_.Id
           name = $_.ProcessName
@@ -247,18 +248,28 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
 
 function Check-SelfUpdate {
   try {
-    $tmp = Join-Path $BaseDir 'agent-v2.new.ps1'
-    Invoke-WebRequest -UseBasicParsing -Uri ($AgentUrl + '?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -OutFile $tmp -TimeoutSec 15
-    $newHash = (Get-FileHash $tmp -Algorithm SHA256).Hash
-    $oldHash = (Get-FileHash $AgentFile -Algorithm SHA256).Hash
-    if ($newHash -ne $oldHash) {
-      Move-Item $tmp $AgentFile -Force
-      Write-Log 'Self-update instalado; reiniciando agente.'
-      try { $script:BridgeMutex.ReleaseMutex() } catch {}
-      Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$AgentFile) -WindowStyle Hidden
-      exit
+    $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $manifest = Invoke-RestMethod -UseBasicParsing -Uri ($ManifestUrl + '?t=' + $stamp) -TimeoutSec 15
+    if ([string]$manifest.version -eq $Version) { return }
+
+    if ([string]::IsNullOrWhiteSpace([string]$manifest.url) -or [string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
+      throw 'invalid_update_manifest'
     }
-    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+
+    $tmp = Join-Path $BaseDir 'agent-v2.new.ps1'
+    Invoke-WebRequest -UseBasicParsing -Uri ([string]$manifest.url) -OutFile $tmp -TimeoutSec 20
+    $newHash = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
+    $expected = ([string]$manifest.sha256).ToLowerInvariant()
+    if ($newHash -ne $expected) {
+      Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+      throw 'update_hash_mismatch'
+    }
+
+    Move-Item $tmp $AgentFile -Force
+    Write-Log ('Self-update verificado instalado: ' + [string]$manifest.version)
+    try { $script:BridgeMutex.ReleaseMutex() } catch {}
+    Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$AgentFile) -WindowStyle Hidden
+    exit
   } catch {
     Write-Log ('Self-update falhou: ' + $_.Exception.Message)
   }
@@ -280,7 +291,8 @@ Post-Comment ("RB2_STATUS" + [Environment]::NewLine + (Encode-Json @{
 
 $lastUpdateCheck = Get-Date
 $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-10)
-$pollDelayMs = 1500
+$pollDelayMs = 7000
+$activeUntil = (Get-Date).AddSeconds(10)
 
 while ($true) {
   try {
@@ -305,6 +317,43 @@ while ($true) {
 
         $cmdId = [string]$header[1]
         $op = [string]$header[2]
+        if ($cmdId -notmatch '^[A-Za-z0-9._-]{1,64}
+        $cmdArgs = [pscustomobject]@{}
+        if ($lines.Count -ge 2 -and -not [string]::IsNullOrWhiteSpace($lines[1])) {
+          try { $cmdArgs = Decode-Json $lines[1].Trim() } catch {
+            Reply $cmdId $false $null 'invalid_payload'
+            continue
+          }
+        }
+
+        try {
+          $result = Invoke-AllowedOperation $op $cmdArgs
+          Reply $cmdId $true $result ''
+        } catch {
+          Reply $cmdId $false $null $_.Exception.Message
+        }
+      }
+    }
+    $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-5)
+    if ((Get-Date) -lt $activeUntil) { $pollDelayMs = 1500 } else { $pollDelayMs = 7000 }
+  } catch {
+    Write-Log ('Loop error: ' + $_.Exception.Message)
+    $pollDelayMs = [Math]::Min([Math]::Max($pollDelayMs * 2, 3000), 30000)
+  }
+
+  if (((Get-Date) - $lastUpdateCheck).TotalMinutes -ge 2) {
+    Check-SelfUpdate
+    $lastUpdateCheck = Get-Date
+  }
+
+  Start-Sleep -Milliseconds $pollDelayMs
+}
+) { continue }
+        try {
+          $created = [DateTimeOffset]::Parse([string]$c.created_at)
+          if (([DateTimeOffset]::UtcNow - $created.ToUniversalTime()).TotalMinutes -gt 10) { continue }
+        } catch {}
+        $activeUntil = (Get-Date).AddSeconds(30)
         $cmdArgs = [pscustomobject]@{}
         if ($lines.Count -ge 2 -and -not [string]::IsNullOrWhiteSpace($lines[1])) {
           try { $cmdArgs = Decode-Json $lines[1].Trim() } catch {
