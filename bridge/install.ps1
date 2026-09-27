@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $Dir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
 $Agent = Join-Path $Dir 'agent-v2.ps1'
 $Backup = Join-Path $Dir 'agent-v2.lastgood.ps1'
-$Health = Join-Path $Dir 'health-v2.json'
+$Health = Join-Path $Dir 'health-v4.json'
 $Pending = Join-Path $Dir 'update-pending.json'
 $AgentStdout = Join-Path $Dir 'agent-startup.stdout.log'
 $AgentStderr = Join-Path $Dir 'agent-startup.stderr.log'
@@ -88,8 +88,8 @@ if (-not (Test-ScriptSyntax $tmpAgent)) {
   throw 'Falha de seguranca: agente baixado possui erro de sintaxe.'
 }
 
-try { Disable-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -ErrorAction SilentlyContinue | Out-Null } catch {}
-try { Stop-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -ErrorAction SilentlyContinue | Out-Null } catch {}
+try { Disable-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-SAFE-V4' -ErrorAction SilentlyContinue | Out-Null } catch {}
+try { Stop-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-SAFE-V4' -ErrorAction SilentlyContinue | Out-Null } catch {}
 
 $bridgeProcs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
   Where-Object {
@@ -133,16 +133,17 @@ Remove-Item $OldStartup -Force -ErrorAction SilentlyContinue
 Remove-Item $Pending -Force -ErrorAction SilentlyContinue
 Remove-Item $Health -Force -ErrorAction SilentlyContinue
 
-$Launch = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Agent + '"'
-Set-Content -Path (Join-Path $Startup 'REALLBLACK-PC-BRIDGE-V2.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
+$Launch = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File "' + $Agent + '"'
+Set-Content -Path (Join-Path $Startup 'REALLBLACK-PC-BRIDGE-SAFE-V4.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
 Set-Content -Path (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
 
 try {
-  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Agent + '"')
+  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File "' + $Agent + '"')
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)
-  Register-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -Action $action -Trigger $trigger -Settings $settings -Description 'REALLBLACK Bridge resilient agent with rollback' -Force | Out-Null
-  Enable-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -ErrorAction SilentlyContinue | Out-Null
+  Unregister-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+  Register-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-SAFE-V4' -Action $action -Trigger $trigger -Settings $settings -Description 'REALLBLACK safe read-only bridge' -Force | Out-Null
+  Enable-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-SAFE-V4' -ErrorAction SilentlyContinue | Out-Null
 } catch {}
 
 Remove-Item $AgentStdout,$AgentStderr -Force -ErrorAction SilentlyContinue
@@ -196,7 +197,7 @@ if (-not $healthy) {
   } catch {}
 
   try {
-    $bridgeLog = Join-Path $Dir 'bridge-v2.log'
+    $bridgeLog = Join-Path $Dir 'bridge-v4.log'
     if (Test-Path $bridgeLog -PathType Leaf) {
       $tail = @(Get-Content $bridgeLog -Tail 12 -ErrorAction SilentlyContinue)
       if ($tail.Count -gt 0) { $diag += ('LOGTAIL=' + ($tail -join ' | ')) }
@@ -227,5 +228,5 @@ Write-Host ''
 Write-Host 'PONTE REALLBLACK RECUPERADA E VALIDADA.' -ForegroundColor Green
 Write-Host ('Versao: ' + [string]$manifest.version)
 Write-Host ('PID: ' + [string]$healthyPid)
-Write-Host 'Protecoes: SHA-256 + sintaxe + health-check + backup + rollback.'
+Write-Host 'Modo: SAFE READ-ONLY. Protecoes: SHA-256 + sintaxe + health-check; Defender permanece ativo.'
 Write-Host ('Atalho: ' + (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd'))
