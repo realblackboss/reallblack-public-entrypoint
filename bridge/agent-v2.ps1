@@ -1334,3 +1334,4 @@ while ($true) {
 # endpoint-validation-trigger
 # installer-health-validation-trigger
 # publish-v381-manifest
+# startup-diagnostics-validation-trigger
