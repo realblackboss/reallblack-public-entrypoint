@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '3.7.0'
+$Version = '3.8.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -619,17 +619,30 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
     }
 
 
+
     'SCREENSHOT' {
       Add-Type -AssemblyName System.Windows.Forms
       Add-Type -AssemblyName System.Drawing
 
-      $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      $screens = @([System.Windows.Forms.Screen]::AllScreens)
+      $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+      $screenIndex = [Array]::IndexOf($screens, $screen)
+
+      $prop = $CmdArgs.PSObject.Properties['screenIndex']
+      if ($null -ne $prop) {
+        $requested = [int]$CmdArgs.screenIndex
+        if ($requested -lt 0 -or $requested -ge $screens.Count) { throw 'screen_index_out_of_range' }
+        $screen = $screens[$requested]
+        $screenIndex = $requested
+      }
+
+      $bounds = $screen.Bounds
       $src = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
       $g = [System.Drawing.Graphics]::FromImage($src)
       try {
         $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
 
-        $targetWidth = 640
+        $targetWidth = [Math]::Min(720, $bounds.Width)
         $targetHeight = [Math]::Max(1, [int]([Math]::Round($bounds.Height * ($targetWidth / [double]$bounds.Width))))
         $dst = New-Object System.Drawing.Bitmap $targetWidth, $targetHeight
         $g2 = [System.Drawing.Graphics]::FromImage($dst)
@@ -639,13 +652,21 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
           try {
             $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
             $params = New-Object System.Drawing.Imaging.EncoderParameters 1
-            $params.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), ([long]35)
+            $params.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), ([long]32)
             $dst.Save($ms, $codec, $params)
+            $bytes = $ms.ToArray()
+            if ($bytes.Length -gt 42000) { throw 'screenshot_too_large_for_transport' }
             return @{
               mime = 'image/jpeg'
+              screenIndex = $screenIndex
+              sourceX = $bounds.X
+              sourceY = $bounds.Y
+              sourceWidth = $bounds.Width
+              sourceHeight = $bounds.Height
               width = $targetWidth
               height = $targetHeight
-              imageBase64 = [Convert]::ToBase64String($ms.ToArray())
+              bytes = $bytes.Length
+              imageBase64 = [Convert]::ToBase64String($bytes)
             }
           } finally { $ms.Dispose() }
         } finally {
@@ -656,6 +677,30 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
         $g.Dispose()
         $src.Dispose()
       }
+    }
+
+    'FOREGROUND_WINDOW' {
+      if (-not ('RBForegroundNative' -as [type])) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class RBForegroundNative {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+}
+'@
+      }
+
+      $h = [RBForegroundNative]::GetForegroundWindow()
+      $pidValue = [uint32]0
+      [RBForegroundNative]::GetWindowThreadProcessId($h,[ref]$pidValue) | Out-Null
+      $sb = New-Object Text.StringBuilder 1024
+      [RBForegroundNative]::GetWindowText($h,$sb,$sb.Capacity) | Out-Null
+      $processName = ''
+      try { $processName = (Get-Process -Id ([int]$pidValue) -ErrorAction Stop).ProcessName } catch {}
+      return @{ pid=[int]$pidValue; process=$processName; title=$sb.ToString(); handle=[string]$h }
     }
 
     'WINDOWS_LIST' {
@@ -911,7 +956,7 @@ public static class RBWindowMoveNative {
           'PING','BRIDGE_INFO','SYSINFO','SELF_UPDATE','RESTART_AGENT',
           'MKDIR','EXISTS','LIST','READ_TEXT','WRITE_TEXT','APPEND_TEXT','MOVE','COPY',
           'PROC_LIST','PROC_STOP',
-          'SCREENSHOT','SCREENS_LIST',
+          'SCREENSHOT','SCREENS_LIST','FOREGROUND_WINDOW',
           'WINDOWS_LIST','WINDOW_ACTIVATE','WINDOW_MOVE','WINDOW_STATE',
           'CLIPBOARD_GET','CLIPBOARD_SET',
           'OPEN_APP','RUN_DIAGNOSTIC',
