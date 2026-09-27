@@ -38,6 +38,22 @@ jobs:
             }
           }
 
+      - name: Smoke-test GitHub content endpoints
+        shell: pwsh
+        run: |
+          $headers = @{
+            Accept = 'application/vnd.github.raw+json'
+            'User-Agent' = 'REALLBLACK-Bridge-Validator'
+          }
+          $base = 'https://api.github.com/repos/realblackboss/reallblack-public-entrypoint/contents/'
+          foreach ($path in @('bridge/manifest-v2.json','bridge/agent-v2.ps1')) {
+            $uri = $base + $path + '?ref=main'
+            $r = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri -Headers $headers -TimeoutSec 20
+            if ($r.StatusCode -ne 200 -or [string]::IsNullOrWhiteSpace([string]$r.Content)) {
+              throw ('Endpoint validation failed: ' + $uri)
+            }
+          }
+
       - name: Generate manifest from validated agent
         shell: python
         run: |
