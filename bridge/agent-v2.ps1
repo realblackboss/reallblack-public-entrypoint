@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '3.2.0'
+$Version = '3.3.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -158,13 +158,18 @@ function Initialize-GitHubApi {
 
 function Poll-Comments([datetime]$Since) {
   try {
-    $uri = "$ApiBase/repos/$Repo/issues/$Issue/comments?per_page=100"
-    $comments = Invoke-RestMethod -UseBasicParsing -Method Get -Uri $uri -Headers $script:GitHubHeaders -TimeoutSec 15
-    return @($comments)
+    $sinceIso = $Since.ToUniversalTime().ToString('o')
+    $raw = (& gh api --paginate -X GET "repos/$Repo/issues/$Issue/comments" -f per_page=100 -f since=$sinceIso --slurp 2>$null) -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw 'github_poll_failed' }
+    if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
+
+    $pages = $raw | ConvertFrom-Json
+    $all = @()
+    foreach ($page in @($pages)) {
+      foreach ($item in @($page)) { $all += $item }
+    }
+    return @($all)
   } catch {
-    $status = 0
-    try { $status = [int]$_.Exception.Response.StatusCode } catch {}
-    if ($status -eq 403 -or $status -eq 429) { throw 'github_rate_limited' }
     throw
   }
 }
