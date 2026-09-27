@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '2.0.0'
+$Version = '2.1.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -10,6 +10,9 @@ $StateFile = Join-Path $BaseDir 'state-v2.json'
 $LogFile = Join-Path $BaseDir 'bridge-v2.log'
 $AgentFile = Join-Path $BaseDir 'agent-v2.ps1'
 $AgentUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/agent-v2.ps1'
+
+$script:BridgeMutex = New-Object System.Threading.Mutex($false, 'Local\REALLBLACK_BRIDGE_V2')
+if (-not $script:BridgeMutex.WaitOne(0)) { exit }
 
 $Roots = @{
   desktop   = [Environment]::GetFolderPath('Desktop')
@@ -239,6 +242,7 @@ function Check-SelfUpdate {
     if ($newHash -ne $oldHash) {
       Move-Item $tmp $AgentFile -Force
       Write-Log 'Self-update instalado; reiniciando agente.'
+      try { $script:BridgeMutex.ReleaseMutex() } catch {}
       Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$AgentFile) -WindowStyle Hidden
       exit
     }
@@ -264,6 +268,7 @@ Post-Comment ("RB2_STATUS" + [Environment]::NewLine + (Encode-Json @{
 
 $lastUpdateCheck = Get-Date
 $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-10)
+$pollDelayMs = 1500
 
 while ($true) {
   try {
@@ -305,8 +310,10 @@ while ($true) {
       }
     }
     $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-5)
+    $pollDelayMs = 1500
   } catch {
     Write-Log ('Loop error: ' + $_.Exception.Message)
+    $pollDelayMs = [Math]::Min($pollDelayMs * 2, 15000)
   }
 
   if (((Get-Date) - $lastUpdateCheck).TotalMinutes -ge 10) {
@@ -314,5 +321,5 @@ while ($true) {
     $lastUpdateCheck = Get-Date
   }
 
-  Start-Sleep -Milliseconds 1500
+  Start-Sleep -Milliseconds $pollDelayMs
 }
