@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.0.1'
+$Version = '4.1.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -9,6 +9,19 @@ $BaseDir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
 $StateFile = Join-Path $BaseDir 'state-v4.json'
 $HealthFile = Join-Path $BaseDir 'health-v4.json'
 $LogFile = Join-Path $BaseDir 'bridge-v4.log'
+
+$ReadRoots = @{
+  desktop = [Environment]::GetFolderPath('Desktop')
+  documents = [Environment]::GetFolderPath('MyDocuments')
+  downloads = Join-Path $env:USERPROFILE 'Downloads'
+  bridge = $BaseDir
+}
+
+$Capabilities = @(
+  'PING','BRIDGE_INFO','CAPABILITIES','SYSINFO',
+  'PROC_LIST','WINDOWS_LIST','SERVICE_LIST',
+  'FILE_INFO','LIST','READ_TEXT'
+)
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
 
@@ -126,6 +139,40 @@ function Write-Health {
   } catch {}
 }
 
+function Resolve-ReadPath([string]$RootName, [string]$RelativePath) {
+  if ([string]::IsNullOrWhiteSpace($RootName)) { throw 'root_required' }
+  $key = $RootName.ToLowerInvariant()
+  if (-not $ReadRoots.ContainsKey($key)) { throw 'root_not_allowed' }
+
+  $root = [IO.Path]::GetFullPath([string]$ReadRoots[$key]).TrimEnd('\\')
+  if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $root }
+  if ([IO.Path]::IsPathRooted($RelativePath)) { throw 'absolute_path_not_allowed' }
+
+  $full = [IO.Path]::GetFullPath((Join-Path $root $RelativePath))
+  if ($full -ne $root -and -not $full.StartsWith($root + '\\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'path_escape_blocked'
+  }
+  return $full
+}
+
+function Get-ArgString($ArgsObject, [string]$Name, [string]$DefaultValue = '') {
+  try {
+    if ($null -ne $ArgsObject -and $ArgsObject.PSObject.Properties[$Name]) {
+      return [string]$ArgsObject.$Name
+    }
+  } catch {}
+  return $DefaultValue
+}
+
+function Get-ArgInt($ArgsObject, [string]$Name, [int]$DefaultValue) {
+  try {
+    if ($null -ne $ArgsObject -and $ArgsObject.PSObject.Properties[$Name]) {
+      return [int]$ArgsObject.$Name
+    }
+  } catch {}
+  return $DefaultValue
+}
+
 function Get-SystemInfo {
   $os = Get-CimInstance Win32_OperatingSystem
   $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
@@ -149,7 +196,7 @@ function Get-SystemInfo {
   }
 }
 
-function Invoke-AllowedOperation([string]$Op) {
+function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
   switch ($Op.ToUpperInvariant()) {
     'PING' {
       return @{ pong = $true; mode = 'safe-readonly' }
@@ -159,11 +206,108 @@ function Invoke-AllowedOperation([string]$Op) {
         version = $Version
         pid = $PID
         mode = 'safe-readonly'
-        capabilities = @('PING','BRIDGE_INFO','SYSINFO')
+        roots = @($ReadRoots.Keys | Sort-Object)
+        capabilities = @($Capabilities)
       }
+    }
+    'CAPABILITIES' {
+      return @{ mode='safe-readonly'; roots=@($ReadRoots.Keys | Sort-Object); capabilities=@($Capabilities) }
     }
     'SYSINFO' {
       return Get-SystemInfo
+    }
+    'PROC_LIST' {
+      $max = Get-ArgInt $CmdArgs 'max' 100
+      $max = [Math]::Max(1,[Math]::Min($max,200))
+      $items = @(Get-Process | Sort-Object CPU -Descending | Select-Object -First $max | ForEach-Object {
+        $started = $null
+        try { $started = $_.StartTime.ToString('o') } catch {}
+        [ordered]@{
+          pid = $_.Id
+          name = $_.ProcessName
+          cpu = if ($null -eq $_.CPU) { 0 } else { [Math]::Round([double]$_.CPU,1) }
+          memoryMB = [Math]::Round($_.WorkingSet64 / 1MB,1)
+          started = $started
+        }
+      })
+      return @{ processes=$items; count=$items.Count }
+    }
+    'WINDOWS_LIST' {
+      $items = @(Get-Process | Where-Object {
+        $_.MainWindowHandle -ne 0 -and -not [string]::IsNullOrWhiteSpace($_.MainWindowTitle)
+      } | Select-Object -First 100 | ForEach-Object {
+        [ordered]@{
+          pid = $_.Id
+          process = $_.ProcessName
+          title = $_.MainWindowTitle
+          handle = [string]$_.MainWindowHandle
+        }
+      })
+      return @{ windows=$items; count=$items.Count }
+    }
+    'SERVICE_LIST' {
+      $max = Get-ArgInt $CmdArgs 'max' 200
+      $max = [Math]::Max(1,[Math]::Min($max,400))
+      $items = @(Get-CimInstance Win32_Service | Sort-Object Name | Select-Object -First $max | ForEach-Object {
+        [ordered]@{
+          name = $_.Name
+          displayName = $_.DisplayName
+          state = $_.State
+          startMode = $_.StartMode
+          pid = $_.ProcessId
+        }
+      })
+      return @{ services=$items; count=$items.Count }
+    }
+    'FILE_INFO' {
+      $rootName = Get-ArgString $CmdArgs 'root' ''
+      $relative = Get-ArgString $CmdArgs 'path' ''
+      $path = Resolve-ReadPath $rootName $relative
+      if (-not (Test-Path -LiteralPath $path)) { throw 'path_not_found' }
+      $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+      return [ordered]@{
+        root = $rootName
+        path = $relative
+        name = $item.Name
+        type = if ($item.PSIsContainer) { 'dir' } else { 'file' }
+        length = if ($item.PSIsContainer) { $null } else { $item.Length }
+        extension = if ($item.PSIsContainer) { '' } else { $item.Extension }
+        attributes = [string]$item.Attributes
+        created = $item.CreationTime.ToString('o')
+        modified = $item.LastWriteTime.ToString('o')
+      }
+    }
+    'LIST' {
+      $rootName = Get-ArgString $CmdArgs 'root' ''
+      $relative = Get-ArgString $CmdArgs 'path' ''
+      $max = Get-ArgInt $CmdArgs 'max' 100
+      $max = [Math]::Max(1,[Math]::Min($max,300))
+      $path = Resolve-ReadPath $rootName $relative
+      if (-not (Test-Path -LiteralPath $path -PathType Container)) { throw 'directory_not_found' }
+      $items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop | Sort-Object PSIsContainer -Descending, Name | Select-Object -First $max | ForEach-Object {
+        [ordered]@{
+          name = $_.Name
+          type = if ($_.PSIsContainer) { 'dir' } else { 'file' }
+          length = if ($_.PSIsContainer) { $null } else { $_.Length }
+          modified = $_.LastWriteTime.ToString('o')
+          attributes = [string]$_.Attributes
+        }
+      })
+      return @{ root=$rootName; path=$relative; items=$items; count=$items.Count }
+    }
+    'READ_TEXT' {
+      $rootName = Get-ArgString $CmdArgs 'root' ''
+      $relative = Get-ArgString $CmdArgs 'path' ''
+      $maxBytes = Get-ArgInt $CmdArgs 'maxBytes' 65536
+      $maxBytes = [Math]::Max(1024,[Math]::Min($maxBytes,262144))
+      $path = Resolve-ReadPath $rootName $relative
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'file_not_found' }
+      $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+      if ($item.Length -gt $maxBytes) { throw 'file_too_large' }
+      $bytes = [IO.File]::ReadAllBytes($path)
+      if ($bytes -contains 0) { throw 'binary_file_not_allowed' }
+      $text = [Text.Encoding]::UTF8.GetString($bytes)
+      return @{ root=$rootName; path=$relative; bytes=$bytes.Length; text=$text }
     }
     default {
       throw 'operation_not_allowed_in_safe_mode'
@@ -233,8 +377,18 @@ while ($true) {
           if (([DateTimeOffset]::UtcNow - $created.ToUniversalTime()).TotalMinutes -gt 10) { continue }
         } catch {}
 
+        $cmdArgs = [pscustomobject]@{}
+        if ($lines.Count -ge 2 -and -not [string]::IsNullOrWhiteSpace($lines[1])) {
+          try {
+            $cmdArgs = Decode-Json $lines[1].Trim()
+          } catch {
+            Reply $cmdId $false $null 'invalid_payload'
+            continue
+          }
+        }
+
         try {
-          $result = Invoke-AllowedOperation $op
+          $result = Invoke-AllowedOperation $op $cmdArgs
           Reply $cmdId $true $result ''
         } catch {
           Reply $cmdId $false $null $_.Exception.Message
