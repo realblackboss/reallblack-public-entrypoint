@@ -1320,3 +1320,4 @@ while ($true) {
 # manifest-trigger-v35
 # final-validation-trigger-v38
 # endpoint-validation-trigger
+# installer-health-validation-trigger
