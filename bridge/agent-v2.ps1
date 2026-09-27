@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '3.5.0'
+$Version = '3.6.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -897,6 +897,102 @@ public static class RBWindowMoveNative {
       }
       [RBInputNative]::KeyCombo([byte]$mod,[byte]$key)
       return @{ pressed=$true; combo=$combo }
+    }
+
+
+    'CAPABILITIES' {
+      return @{
+        version = $Version
+        transport = 'github-cli-paginated'
+        safety = @('allowlist','sha256','syntax-parse','health-check','last-good-backup','watchdog-rollback')
+        operations = @(
+          'PING','BRIDGE_INFO','SYSINFO','SELF_UPDATE','RESTART_AGENT',
+          'MKDIR','EXISTS','LIST','READ_TEXT','WRITE_TEXT','APPEND_TEXT','MOVE','COPY',
+          'PROC_LIST','PROC_STOP',
+          'SCREENSHOT','SCREENS_LIST',
+          'WINDOWS_LIST','WINDOW_ACTIVATE','WINDOW_MOVE','WINDOW_STATE',
+          'CLIPBOARD_GET','CLIPBOARD_SET',
+          'OPEN_APP','RUN_DIAGNOSTIC',
+          'MOUSE_POSITION','MOUSE_MOVE','MOUSE_CLICK','MOUSE_SCROLL',
+          'TYPE_TEXT','KEY_PRESS','KEY_COMBO',
+          'FILE_INFO','FILE_HASH',
+          'KEYBOARD_DIAG','KBD_DEEP_AUDIT','FIX_QUESTION_KEY'
+        )
+      }
+    }
+
+    'SCREENS_LIST' {
+      Add-Type -AssemblyName System.Windows.Forms
+      $screens = @()
+      $index = 0
+      foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
+        $screens += [ordered]@{
+          index = $index
+          deviceName = $s.DeviceName
+          primary = $s.Primary
+          x = $s.Bounds.X
+          y = $s.Bounds.Y
+          width = $s.Bounds.Width
+          height = $s.Bounds.Height
+          workingX = $s.WorkingArea.X
+          workingY = $s.WorkingArea.Y
+          workingWidth = $s.WorkingArea.Width
+          workingHeight = $s.WorkingArea.Height
+        }
+        $index++
+      }
+      return @{ screens=@($screens); count=$screens.Count }
+    }
+
+    'WINDOW_STATE' {
+      $pidTarget = [int]$CmdArgs.pid
+      $state = ([string]$CmdArgs.state).ToLowerInvariant()
+      $p = Get-Process -Id $pidTarget -ErrorAction Stop
+      if ($p.MainWindowHandle -eq 0) { throw 'window_not_found' }
+
+      if (-not ('RBWindowStateNative' -as [type])) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class RBWindowStateNative {
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+}
+'@
+      }
+
+      switch ($state) {
+        'minimize' { $code=6 }
+        'maximize' { $code=3 }
+        'restore' { $code=9 }
+        default { throw 'window_state_not_allowed' }
+      }
+
+      $ok = [RBWindowStateNative]::ShowWindowAsync($p.MainWindowHandle,$code)
+      return @{ pid=$pidTarget; state=$state; changed=[bool]$ok }
+    }
+
+    'FILE_INFO' {
+      $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
+      if (-not (Test-Path $p)) { throw 'file_not_found' }
+      $i = Get-Item -LiteralPath $p -Force
+      return @{
+        path=$p
+        name=$i.Name
+        isDirectory=[bool]$i.PSIsContainer
+        length=if ($i.PSIsContainer) { $null } else { $i.Length }
+        created=$i.CreationTime.ToString('o')
+        modified=$i.LastWriteTime.ToString('o')
+        attributes=[string]$i.Attributes
+      }
+    }
+
+    'FILE_HASH' {
+      $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
+      if (-not (Test-Path $p -PathType Leaf)) { throw 'file_not_found' }
+      $i = Get-Item -LiteralPath $p
+      if ($i.Length -gt 1073741824) { throw 'file_too_large_for_hash' }
+      $h = Get-FileHash -LiteralPath $p -Algorithm SHA256
+      return @{ path=$p; sha256=$h.Hash.ToLowerInvariant(); length=$i.Length }
     }
 
     'KEYBOARD_DIAG' {
