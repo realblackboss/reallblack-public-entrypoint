@@ -1144,3 +1144,4 @@ while ($true) {
 
   Start-Sleep -Milliseconds $pollDelayMs
 }
+# manifest-trigger-v35
