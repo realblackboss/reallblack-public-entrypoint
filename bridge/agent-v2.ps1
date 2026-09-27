@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '2.5.0'
+$Version = '2.6.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -10,6 +10,7 @@ $StateFile = Join-Path $BaseDir 'state-v2.json'
 $LogFile = Join-Path $BaseDir 'bridge-v2.log'
 $AgentFile = Join-Path $BaseDir 'agent-v2.ps1'
 $ManifestUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/manifest-v2.json'
+$ApiBase = 'https://api.github.com'
 
 $script:BridgeMutex = New-Object System.Threading.Mutex($false, 'Local\REALLBLACK_BRIDGE_V2')
 if (-not $script:BridgeMutex.WaitOne(0)) { exit }
@@ -29,6 +30,43 @@ function Write-Log([string]$Message) {
       Move-Item $LogFile ($LogFile + '.1') -Force -ErrorAction SilentlyContinue
     }
   } catch {}
+}
+
+function Initialize-GitHubApi {
+  $token = (& gh auth token -h github.com 2>$null | Select-Object -First 1)
+  if ([string]::IsNullOrWhiteSpace([string]$token)) { throw 'github_token_unavailable' }
+  $script:GitHubHeaders = @{
+    Authorization = ('Bearer ' + ([string]$token).Trim())
+    Accept = 'application/vnd.github+json'
+    'X-GitHub-Api-Version' = '2022-11-28'
+    'User-Agent' = 'REALLBLACK-Bridge-V2'
+  }
+  $script:CommentsEtag = $null
+}
+
+function Poll-Comments([datetime]$Since) {
+  $sinceIso = [uri]::EscapeDataString($Since.ToUniversalTime().ToString('o'))
+  $uri = "$ApiBase/repos/$Repo/issues/$Issue/comments?per_page=100&since=$sinceIso"
+
+  $headers = @{}
+  foreach ($key in $script:GitHubHeaders.Keys) { $headers[$key] = $script:GitHubHeaders[$key] }
+  if (-not [string]::IsNullOrWhiteSpace([string]$script:CommentsEtag)) {
+    $headers['If-None-Match'] = $script:CommentsEtag
+  }
+
+  try {
+    $response = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri -Headers $headers -TimeoutSec 15
+    $etag = [string]$response.Headers['ETag']
+    if (-not [string]::IsNullOrWhiteSpace($etag)) { $script:CommentsEtag = $etag }
+    if ([string]::IsNullOrWhiteSpace([string]$response.Content)) { return @() }
+    return @($response.Content | ConvertFrom-Json)
+  } catch {
+    $status = 0
+    try { $status = [int]$_.Exception.Response.StatusCode } catch {}
+    if ($status -eq 304) { return @() }
+    if ($status -eq 403 -or $status -eq 429) { throw 'github_rate_limited' }
+    throw
+  }
 }
 
 function Post-Comment([string]$Body) {
@@ -127,7 +165,7 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
     }
 
     'BRIDGE_INFO' {
-      return @{ version = $Version; pid = $PID; roots = @($Roots.Keys); activePollMs = 1500; idlePollMs = 7000; transport = 'github-rest'; uptimeSec = [int]((Get-Date) - $script:StartTime).TotalSeconds }
+      return @{ version = $Version; pid = $PID; roots = @($Roots.Keys); activePollMs = 1000; idlePollMs = 4000; transport = 'github-rest-etag'; uptimeSec = [int]((Get-Date) - $script:StartTime).TotalSeconds }
     }
 
     'SYSINFO' {
@@ -274,6 +312,7 @@ function Check-SelfUpdate {
 }
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
+Initialize-GitHubApi
 
 $state = Get-State
 $lastId = [long]$state.lastCommentId
@@ -289,15 +328,13 @@ Post-Comment ("RB2_STATUS" + [Environment]::NewLine + (Encode-Json @{
 
 $lastUpdateCheck = Get-Date
 $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-10)
-$pollDelayMs = 7000
+$pollDelayMs = 4000
 $activeUntil = (Get-Date).AddSeconds(10)
 
 while ($true) {
   try {
-    $sinceIso = [uri]::EscapeDataString($pollSince.ToString('o'))
-    $raw = & gh api "repos/$Repo/issues/$Issue/comments?per_page=100&since=$sinceIso"
-    if ($LASTEXITCODE -eq 0) {
-      $comments = $raw | ConvertFrom-Json
+    $comments = @(Poll-Comments $pollSince)
+    if ($comments.Count -gt 0) {
       foreach ($c in @($comments | Sort-Object id)) {
         $cid = [long]$c.id
         if ($cid -le $lastId) { continue }
@@ -336,12 +373,28 @@ while ($true) {
           Reply $cmdId $false $null $_.Exception.Message
         }
       }
+
+      $latestCreated = $null
+      foreach ($item in @($comments)) {
+        try {
+          $dt = [DateTimeOffset]::Parse([string]$item.created_at).UtcDateTime
+          if ($null -eq $latestCreated -or $dt -gt $latestCreated) { $latestCreated = $dt }
+        } catch {}
+      }
+      if ($null -ne $latestCreated -and $latestCreated -gt $pollSince.AddSeconds(2)) {
+        $pollSince = $latestCreated.AddSeconds(-2)
+        $script:CommentsEtag = $null
+      }
     }
-    $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-5)
-    if ((Get-Date) -lt $activeUntil) { $pollDelayMs = 1500 } else { $pollDelayMs = 7000 }
+
+    if ((Get-Date) -lt $activeUntil) { $pollDelayMs = 1000 } else { $pollDelayMs = 4000 }
   } catch {
     Write-Log ('Loop error: ' + $_.Exception.Message)
-    $pollDelayMs = [Math]::Min([Math]::Max($pollDelayMs * 2, 3000), 30000)
+    if ($_.Exception.Message -eq 'github_rate_limited') {
+      $pollDelayMs = 60000
+    } else {
+      $pollDelayMs = [Math]::Min([Math]::Max($pollDelayMs * 2, 3000), 30000)
+    }
   }
 
   if (((Get-Date) - $lastUpdateCheck).TotalMinutes -ge 2) {
