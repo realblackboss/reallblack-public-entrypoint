@@ -215,13 +215,10 @@ if (-not $healthy) {
   if ($diagText.Length -gt 7000) { $diagText = $diagText.Substring(0,7000) }
 
   if (Test-ScriptSyntax $Backup) {
-    Copy-Item -LiteralPath $Backup -Destination $Agent -Force
-    Remove-Item $Health -Force -ErrorAction SilentlyContinue
-    Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden
-    throw ("A nova ponte nao passou no teste de saude. Rollback automatico aplicado." + [Environment]::NewLine + $diagText)
+    $diagText = $diagText + [Environment]::NewLine + 'BACKUP=preservado_sem_execucao_por_seguranca'
   }
 
-  throw ("A ponte nao passou no teste de saude e nao existe backup valido." + [Environment]::NewLine + $diagText)
+  throw ("A ponte segura nao passou no teste de saude. O agente anterior NAO foi reativado." + [Environment]::NewLine + $diagText)
 }
 
 Write-Host ''
