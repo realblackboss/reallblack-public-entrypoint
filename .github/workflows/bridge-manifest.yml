@@ -1,0 +1,74 @@
+name: Publish Bridge Manifest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - bridge/agent-v2.ps1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'bridge/agent-v2.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if (@($errors).Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+
+      - name: Generate manifest from validated agent
+        shell: python
+        run: |
+          import hashlib, json, re
+          from pathlib import Path
+          p = Path('bridge/agent-v2.ps1')
+          raw = p.read_bytes()
+          text = raw.decode('utf-8')
+          m = re.search(r"\$Version\s*=\s*'([^']+)'", text)
+          if not m:
+              raise SystemExit('Bridge version not found')
+          manifest = {
+              "version": m.group(1),
+              "url": "https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/agent-v2.ps1",
+              "sha256": hashlib.sha256(raw).hexdigest(),
+              "protections": [
+                  "sha256",
+                  "syntax-parse",
+                  "atomic-replace",
+                  "health-check",
+                  "last-good-backup",
+                  "watchdog-rollback"
+              ]
+          }
+          Path('bridge/manifest-v2.json').write_text(
+              json.dumps(manifest, indent=2) + "\n",
+              encoding='utf-8'
+          )
+
+      - name: Commit manifest
+        shell: bash
+        run: |
+          if git diff --quiet -- bridge/manifest-v2.json; then
+            echo "Manifest already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bridge/manifest-v2.json
+          git commit -m "bridge: publish validated manifest"
+          git push
