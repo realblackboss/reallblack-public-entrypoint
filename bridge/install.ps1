@@ -58,6 +58,6 @@ Write-Host ''
 Write-Host 'PONTE REALLBLACK V2 INSTALADA E INICIADA.' -ForegroundColor Green
 Write-Host 'Velocidade: polling aproximado de 1,5 segundo.'
 Write-Host 'Autostart: Startup + tarefa agendada de recuperacao.'
-Write-Host 'Atualizacao automatica: ativa a cada 10 minutos.'
+Write-Host 'Atualizacao automatica: ativa a cada 2 minutos + SELF_UPDATE sob demanda.'
 Write-Host ('Agente: ' + $Agent)
 Write-Host ('Atalho: ' + (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd'))
