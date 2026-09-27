@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: bridge-manifest-main
+  cancel-in-progress: true
+
 jobs:
   validate-and-publish:
     runs-on: ubuntu-latest
@@ -63,6 +67,11 @@ jobs:
       - name: Commit manifest
         shell: bash
         run: |
+          remote_head="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$remote_head" != "$GITHUB_SHA" ]; then
+            echo "A newer bridge commit exists; skipping stale manifest publication."
+            exit 0
+          fi
           if git diff --quiet -- bridge/manifest-v2.json; then
             echo "Manifest already current."
             exit 0
