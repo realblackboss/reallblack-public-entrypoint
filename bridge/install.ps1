@@ -2,8 +2,10 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $Dir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
-$Agent = Join-Path $Dir 'desktop-folder-agent.ps1'
+$Agent = Join-Path $Dir 'agent-v2.ps1'
 $Desktop = [Environment]::GetFolderPath('Desktop')
+$Startup = [Environment]::GetFolderPath('Startup')
+$AgentUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/agent-v2.ps1'
 
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Desktop 'funcionando') | Out-Null
@@ -18,93 +20,42 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
 }
 
 cmd.exe /d /c "gh auth status -h github.com >nul 2>&1"
-$ghStatus = $LASTEXITCODE
-
-if ($ghStatus -ne 0) {
+if ($LASTEXITCODE -ne 0) {
   Write-Host 'Autenticacao GitHub necessaria. O navegador sera aberto uma unica vez.'
   cmd.exe /d /c "gh auth login -h github.com -p https -w"
-  $ghLogin = $LASTEXITCODE
-  if ($ghLogin -ne 0) { throw 'Falha na autenticacao do GitHub.' }
+  if ($LASTEXITCODE -ne 0) { throw 'Falha na autenticacao do GitHub.' }
 }
 
-$AgentCode = @'
-$ErrorActionPreference = 'Continue'
-$Repo = 'realblackboss/twitch-gpt-gemini-2026'
-$Issue = 1
-$Trusted = 'realblackboss'
-$Desktop = [Environment]::GetFolderPath('Desktop')
-$State = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge\last_comment.txt'
-
-function Post-Bridge([string]$Body) {
-  try {
-    @{ body = $Body } | ConvertTo-Json -Compress | gh api --method POST "repos/$Repo/issues/$Issue/comments" --input - *> $null
-  } catch {}
-}
-
-$Last = 0
-if (Test-Path $State) {
-  try { $Last = [long](Get-Content $State -Raw) } catch { $Last = 0 }
-}
-
-Post-Bridge ('BRIDGE_STATUS_V1' + [Environment]::NewLine + 'ONLINE|' + $env:COMPUTERNAME + '|' + (Get-Date -Format o))
-
-while ($true) {
-  try {
-    $Raw = & gh api "repos/$Repo/issues/$Issue/comments?per_page=100"
-    if ($LASTEXITCODE -eq 0) {
-      $Comments = $Raw | ConvertFrom-Json
-      foreach ($C in @($Comments | Sort-Object id)) {
-        $Id = [long]$C.id
-        if ($Id -le $Last) { continue }
-        $Last = $Id
-        Set-Content -Path $State -Value $Last -Encoding ASCII
-
-        if ($C.user.login -ne $Trusted) { continue }
-        $Body = [string]$C.body
-
-        if ($Body.StartsWith('BRIDGE_PING_V1')) {
-          Post-Bridge ('BRIDGE_PONG_V1' + [Environment]::NewLine + $env:COMPUTERNAME + '|' + (Get-Date -Format o))
-          continue
-        }
-
-        if (-not $Body.StartsWith('BRIDGE_MKDIR_V1')) { continue }
-        $Lines = $Body -split "\r?\n"
-        if ($Lines.Count -lt 2) { continue }
-
-        try {
-          $Name = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Lines[1].Trim()))
-        } catch { continue }
-
-        $Name = [IO.Path]::GetFileName($Name)
-        if ([string]::IsNullOrWhiteSpace($Name)) { continue }
-
-        $Path = Join-Path $Desktop $Name
-        New-Item -ItemType Directory -Force -Path $Path | Out-Null
-        Post-Bridge ('BRIDGE_RESULT_V1' + [Environment]::NewLine + 'MKDIR_OK|' + $Name + '|' + (Get-Date -Format o))
-      }
-    }
-  } catch {}
-  Start-Sleep -Seconds 10
-}
-'@
-
-Set-Content -Path $Agent -Value $AgentCode -Encoding UTF8
-
-$Startup = [Environment]::GetFolderPath('Startup')
-$Launch = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Agent + '"'
-
-Set-Content -Path (Join-Path $Startup 'REALLBLACK-PC-BRIDGE.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
-Set-Content -Path (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
+Invoke-WebRequest -UseBasicParsing -Uri ($AgentUrl + '?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -OutFile $Agent
 
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
-  Where-Object { $_.CommandLine -like '*ReallBlackBridge*desktop-folder-agent.ps1*' } |
-  ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
+  Where-Object {
+    $_.CommandLine -like '*ReallBlackBridge*desktop-folder-agent.ps1*' -or
+    $_.CommandLine -like '*ReallBlackBridge*agent-v2.ps1*'
+  } |
+  ForEach-Object {
+    try { Stop-Process -Id $_.ProcessId -Force } catch {}
+  }
 
-Remove-Item (Join-Path $Dir 'last_comment.txt') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $Dir 'state-v2.json') -Force -ErrorAction SilentlyContinue
+
+$Launch = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Agent + '"'
+Set-Content -Path (Join-Path $Startup 'REALLBLACK-PC-BRIDGE-V2.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
+Set-Content -Path (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
+
+try {
+  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Agent + '"')
+  $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)
+  Register-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -Action $action -Trigger $trigger -Settings $settings -Description 'REALLBLACK Bridge V2 fast resilient agent' -Force | Out-Null
+} catch {}
 
 Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden
 
 Write-Host ''
-Write-Host 'PONTE REALLBLACK INSTALADA.' -ForegroundColor Green
-Write-Host ('Pasta criada: ' + (Join-Path $Desktop 'funcionando'))
-Write-Host ('Atalho criado: ' + (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd'))
+Write-Host 'PONTE REALLBLACK V2 INSTALADA E INICIADA.' -ForegroundColor Green
+Write-Host 'Velocidade: polling aproximado de 1,5 segundo.'
+Write-Host 'Autostart: Startup + tarefa agendada de recuperacao.'
+Write-Host 'Atualizacao automatica: ativa a cada 10 minutos.'
+Write-Host ('Agente: ' + $Agent)
+Write-Host ('Atalho: ' + (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd'))
