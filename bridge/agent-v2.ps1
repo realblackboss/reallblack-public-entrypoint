@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '3.3.0'
+$Version = '3.4.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -602,6 +602,98 @@ public static class RBWindowMoveNative {
 
       $ok = [RBWindowMoveNative]::MoveWindow($p.MainWindowHandle, $x, $y, $width, $height, $true)
       return @{ pid=$pidTarget; moved=[bool]$ok; x=$x; y=$y; width=$width; height=$height }
+    }
+
+
+    'CLIPBOARD_GET' {
+      $text = ''
+      try { $text = [string](Get-Clipboard -Raw -ErrorAction Stop) } catch { $text = '' }
+      if ($text.Length -gt 32768) { $text = $text.Substring(0,32768) }
+      return @{ text=$text; length=$text.Length }
+    }
+
+    'CLIPBOARD_SET' {
+      $text = [string]$CmdArgs.text
+      if ($text.Length -gt 32768) { throw 'clipboard_too_large' }
+      Set-Clipboard -Value $text
+      return @{ set=$true; length=$text.Length }
+    }
+
+    'OPEN_APP' {
+      $app = ([string]$CmdArgs.app).ToLowerInvariant()
+      $target = $null
+      $arguments = @()
+
+      switch ($app) {
+        'notepad' { $target = 'notepad.exe' }
+        'calculator' { $target = 'calc.exe' }
+        'paint' { $target = 'mspaint.exe' }
+        'explorer' { $target = 'explorer.exe' }
+        'taskmgr' { $target = 'taskmgr.exe' }
+        'cmd' { $target = 'cmd.exe' }
+        'powershell' { $target = 'powershell.exe'; $arguments = @('-NoExit') }
+        'edge' { $target = 'msedge.exe' }
+        'obs' {
+          $candidates = @(
+            'C:\Program Files\obs-studio\bin\64bit\obs64.exe',
+            'C:\Program Files (x86)\obs-studio\bin\64bit\obs64.exe'
+          )
+          $target = $candidates | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
+        }
+        'opera' {
+          $candidates = @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\Opera\opera.exe'),
+            'C:\Program Files\Opera\opera.exe',
+            'C:\Program Files (x86)\Opera\opera.exe'
+          )
+          $target = $candidates | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
+        }
+        default { throw 'app_not_allowed' }
+      }
+
+      if ([string]::IsNullOrWhiteSpace([string]$target)) { throw 'app_not_found' }
+      $p = Start-Process -FilePath $target -ArgumentList $arguments -PassThru
+      return @{ app=$app; pid=$p.Id; started=$true }
+    }
+
+    'RUN_DIAGNOSTIC' {
+      $tool = ([string]$CmdArgs.tool).ToLowerInvariant()
+      $exe = $null
+      $args = @()
+
+      switch ($tool) {
+        'whoami' { $exe='whoami.exe' }
+        'ipconfig' { $exe='ipconfig.exe'; $args=@('/all') }
+        'tasklist' { $exe='tasklist.exe' }
+        'powercfg-active' { $exe='powercfg.exe'; $args=@('/getactivescheme') }
+        'driverquery' { $exe='driverquery.exe'; $args=@('/FO','CSV') }
+        'netstat' { $exe='netstat.exe'; $args=@('-ano') }
+        'nvidia-smi' { $exe='nvidia-smi.exe' }
+        'winget-list' { $exe='winget.exe'; $args=@('list','--disable-interactivity') }
+        default { throw 'diagnostic_not_allowed' }
+      }
+
+      $psi = New-Object Diagnostics.ProcessStartInfo
+      $psi.FileName = $exe
+      $psi.Arguments = ($args -join ' ')
+      $psi.UseShellExecute = $false
+      $psi.RedirectStandardOutput = $true
+      $psi.RedirectStandardError = $true
+      $psi.CreateNoWindow = $true
+
+      $p = New-Object Diagnostics.Process
+      $p.StartInfo = $psi
+      if (-not $p.Start()) { throw 'diagnostic_start_failed' }
+      if (-not $p.WaitForExit(15000)) {
+        try { $p.Kill() } catch {}
+        throw 'diagnostic_timeout'
+      }
+
+      $stdout = $p.StandardOutput.ReadToEnd()
+      $stderr = $p.StandardError.ReadToEnd()
+      if ($stdout.Length -gt 24000) { $stdout = $stdout.Substring(0,24000) }
+      if ($stderr.Length -gt 8000) { $stderr = $stderr.Substring(0,8000) }
+      return @{ tool=$tool; exitCode=$p.ExitCode; stdout=$stdout; stderr=$stderr }
     }
 
     'KEYBOARD_DIAG' {
