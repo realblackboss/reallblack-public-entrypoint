@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '2.1.1'
+$Version = '2.2.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -132,6 +132,18 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
 
     'SYSINFO' {
       return Get-SystemInfo
+    }
+
+    'SELF_UPDATE' {
+      Check-SelfUpdate
+      return @{ checked = $true; version = $Version }
+    }
+
+    'RESTART_AGENT' {
+      try { $script:BridgeMutex.ReleaseMutex() } catch {}
+      Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$AgentFile) -WindowStyle Hidden
+      Start-Sleep -Milliseconds 250
+      exit
     }
 
     'MKDIR' {
@@ -316,7 +328,7 @@ while ($true) {
     $pollDelayMs = [Math]::Min($pollDelayMs * 2, 15000)
   }
 
-  if (((Get-Date) - $lastUpdateCheck).TotalMinutes -ge 10) {
+  if (((Get-Date) - $lastUpdateCheck).TotalMinutes -ge 2) {
     Check-SelfUpdate
     $lastUpdateCheck = Get-Date
   }
