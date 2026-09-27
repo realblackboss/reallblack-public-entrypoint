@@ -1139,13 +1139,13 @@ function Get-PublicRepoRawHeaders {
 }
 
 function Get-PublicRepoFileText([string]$Path) {
-  $uri = "$ApiBase/repos/$PublicRepo/contents/$Path?ref=main"
+  $uri = $ApiBase + '/repos/' + $PublicRepo + '/contents/' + $Path + '?ref=main'
   $r = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri -Headers (Get-PublicRepoRawHeaders) -TimeoutSec 20
   return [string]$r.Content
 }
 
 function Download-PublicRepoFile([string]$Path, [string]$Destination) {
-  $uri = "$ApiBase/repos/$PublicRepo/contents/$Path?ref=main"
+  $uri = $ApiBase + '/repos/' + $PublicRepo + '/contents/' + $Path + '?ref=main'
   Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri -Headers (Get-PublicRepoRawHeaders) -OutFile $Destination -TimeoutSec 25
 }
 
