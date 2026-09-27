@@ -17,11 +17,20 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
   throw 'GitHub CLI nao encontrado.'
 }
 
+$prev = $ErrorActionPreference
+$ErrorActionPreference = 'SilentlyContinue'
 & gh auth status -h github.com *> $null
-if ($LASTEXITCODE -ne 0) {
+$ghStatus = $LASTEXITCODE
+$ErrorActionPreference = $prev
+
+if ($ghStatus -ne 0) {
   Write-Host 'Autenticacao GitHub necessaria. O navegador sera aberto uma unica vez.'
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
   & gh auth login -h github.com -p https -w
-  if ($LASTEXITCODE -ne 0) { throw 'Falha na autenticacao do GitHub.' }
+  $ghLogin = $LASTEXITCODE
+  $ErrorActionPreference = $prev
+  if ($ghLogin -ne 0) { throw 'Falha na autenticacao do GitHub.' }
 }
 
 $AgentCode = @'
