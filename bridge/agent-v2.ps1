@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '3.8.0'
+$Version = '3.8.1'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -19,7 +19,19 @@ $PublicAgentPath = 'bridge/agent-v2.ps1'
 $ApiBase = 'https://api.github.com'
 
 $script:BridgeMutex = New-Object System.Threading.Mutex($false, 'Local\REALLBLACK_BRIDGE_V2')
-if (-not $script:BridgeMutex.WaitOne(0)) { exit }
+$script:BridgeMutexAcquired = $false
+try {
+  $script:BridgeMutexAcquired = $script:BridgeMutex.WaitOne(15000)
+} catch [System.Threading.AbandonedMutexException] {
+  $script:BridgeMutexAcquired = $true
+}
+if (-not $script:BridgeMutexAcquired) {
+  try {
+    New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
+    Add-Content -Path $LogFile -Value ("[{0}] startup blocked: bridge mutex busy" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'))
+  } catch {}
+  exit
+}
 
 $Roots = @{
   desktop   = [Environment]::GetFolderPath('Desktop')
