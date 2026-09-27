@@ -1,4 +1,5 @@
 # REALLBLACK SCREEN HELPER
+# LOCAL-ONLY: no network transport.
 param(
   [ValidateSet('INFO','CAPTURE')]
   [string]$Mode = 'INFO',
