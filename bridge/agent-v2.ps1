@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '3.0.0'
+$Version = '3.1.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -11,6 +11,8 @@ $LogFile = Join-Path $BaseDir 'bridge-v2.log'
 $AgentFile = Join-Path $BaseDir 'agent-v2.ps1'
 $HealthFile = Join-Path $BaseDir 'health-v2.json'
 $WatchdogFile = Join-Path $BaseDir 'watchdog-v2.ps1'
+$BackupFile = Join-Path $BaseDir 'agent-v2.lastgood.ps1'
+$PendingFile = Join-Path $BaseDir 'update-pending.json'
 $ManifestUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/manifest-v2.json'
 $ApiBase = 'https://api.github.com'
 
@@ -30,32 +32,78 @@ function Ensure-Watchdog {
 $ErrorActionPreference = 'SilentlyContinue'
 $BaseDir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
 $AgentFile = Join-Path $BaseDir 'agent-v2.ps1'
+$BackupFile = Join-Path $BaseDir 'agent-v2.lastgood.ps1'
 $HealthFile = Join-Path $BaseDir 'health-v2.json'
+$PendingFile = Join-Path $BaseDir 'update-pending.json'
 $mutex = New-Object System.Threading.Mutex($false, 'Local\REALLBLACK_BRIDGE_WATCHDOG_V2')
 if (-not $mutex.WaitOne(0)) { exit }
 
+function Test-ScriptSyntax([string]$Path) {
+  if (-not (Test-Path $Path -PathType Leaf)) { return $false }
+  try {
+    $tokens = $null
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors) | Out-Null
+    return (@($errors).Count -eq 0)
+  } catch {
+    return $false
+  }
+}
+
+function Restore-LastGood {
+  if (Test-ScriptSyntax $BackupFile) {
+    Copy-Item -LiteralPath $BackupFile -Destination $AgentFile -Force
+    Remove-Item $PendingFile -Force -ErrorAction SilentlyContinue
+    return $true
+  }
+  return $false
+}
+
 while ($true) {
   $restart = $false
+  $rollback = $false
   $procs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
     Where-Object { $_.CommandLine -like '*ReallBlackBridge*agent-v2.ps1*' })
 
-  if ($procs.Count -eq 0) {
-    $restart = $true
-  } elseif (Test-Path $HealthFile) {
-    try {
-      $age = ((Get-Date) - (Get-Item $HealthFile).LastWriteTime).TotalSeconds
-      if ($age -gt 60) {
-        foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force } catch {} }
-        $restart = $true
-      }
-    } catch {}
+  $healthExists = Test-Path $HealthFile
+  $healthAge = 999999
+  if ($healthExists) {
+    try { $healthAge = ((Get-Date) - (Get-Item $HealthFile).LastWriteTime).TotalSeconds } catch {}
   }
 
-  if ($restart -and (Test-Path $AgentFile)) {
+  if ($procs.Count -eq 0) {
+    $restart = $true
+    if (-not (Test-ScriptSyntax $AgentFile)) {
+      $rollback = $true
+    } elseif ((Test-Path $PendingFile) -and $healthAge -gt 30) {
+      $rollback = $true
+    }
+  } elseif (-not $healthExists) {
+    $oldEnough = $false
+    foreach ($p in $procs) {
+      try {
+        $created = [Management.ManagementDateTimeConverter]::ToDateTime([string]$p.CreationDate)
+        if (((Get-Date) - $created).TotalSeconds -gt 60) { $oldEnough = $true }
+      } catch {}
+    }
+    if ($oldEnough) {
+      foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force } catch {} }
+      $restart = $true
+      if (Test-Path $PendingFile) { $rollback = $true }
+    }
+  } elseif ($healthAge -gt 60) {
+    foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force } catch {} }
+    $restart = $true
+    if (Test-Path $PendingFile) { $rollback = $true }
+  }
+
+  if ($rollback) { Restore-LastGood | Out-Null }
+
+  if ($restart -and (Test-ScriptSyntax $AgentFile)) {
     Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$AgentFile) -WindowStyle Hidden
   }
 
-  Start-Sleep -Seconds 15
+  Start-Sleep -Seconds 10
 }
 '@
 
@@ -66,9 +114,9 @@ while ($true) {
 
     $existing = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
       Where-Object { $_.CommandLine -like '*ReallBlackBridge*watchdog-v2.ps1*' })
-    if ($existing.Count -eq 0) {
-      Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$WatchdogFile) -WindowStyle Hidden
-    }
+    foreach ($p in $existing) { try { Stop-Process -Id $p.ProcessId -Force } catch {} }
+    Start-Sleep -Milliseconds 250
+    Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$WatchdogFile) -WindowStyle Hidden
   } catch {
     Write-Log ('Watchdog setup falhou: ' + $_.Exception.Message)
   }
@@ -526,28 +574,67 @@ Start-Process "$env:WINDIR\System32\ctfmon.exe"
   }
 }
 
+function Test-PowerShellSyntax([string]$Path) {
+  if (-not (Test-Path $Path -PathType Leaf)) { return $false }
+  try {
+    $tokens = $null
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors) | Out-Null
+    return (@($errors).Count -eq 0)
+  } catch {
+    return $false
+  }
+}
+
 function Check-SelfUpdate {
   try {
     $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $manifest = Invoke-RestMethod -UseBasicParsing -Uri ($ManifestUrl + '?t=' + $stamp) -TimeoutSec 15
-    if ([string]$manifest.version -eq $Version) { return }
     if ([string]::IsNullOrWhiteSpace([string]$manifest.url) -or [string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
       throw 'invalid_update_manifest'
     }
 
-    $tmp = Join-Path $BaseDir 'agent-v2.new.ps1'
-    Invoke-WebRequest -UseBasicParsing -Uri ([string]$manifest.url) -OutFile $tmp -TimeoutSec 20
-    $newHash = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
     $expectedHash = ([string]$manifest.sha256).ToLowerInvariant()
+    $currentHash = ''
+    if (Test-Path $AgentFile -PathType Leaf) {
+      try { $currentHash = (Get-FileHash $AgentFile -Algorithm SHA256).Hash.ToLowerInvariant() } catch {}
+    }
+    if ($currentHash -eq $expectedHash) { return }
+
+    $tmp = Join-Path $BaseDir 'agent-v2.candidate.ps1'
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    Invoke-WebRequest -UseBasicParsing -Uri ([string]$manifest.url + '?t=' + $stamp) -OutFile $tmp -TimeoutSec 20
+
+    $newHash = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($newHash -ne $expectedHash) {
       Remove-Item $tmp -Force -ErrorAction SilentlyContinue
       throw 'update_hash_mismatch'
     }
+    if (-not (Test-PowerShellSyntax $tmp)) {
+      Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+      throw 'update_syntax_invalid'
+    }
 
-    Move-Item $tmp $AgentFile -Force
-    Write-Log ('Self-update verificado: ' + [string]$manifest.version)
+    @{
+      targetVersion = [string]$manifest.version
+      targetHash = $expectedHash
+      started = (Get-Date).ToString('o')
+    } | ConvertTo-Json -Compress | Set-Content -Path $PendingFile -Encoding UTF8
+
+    if (Test-Path $AgentFile -PathType Leaf) {
+      if (Test-PowerShellSyntax $AgentFile) {
+        [IO.File]::Replace($tmp, $AgentFile, $BackupFile, $true)
+      } else {
+        Move-Item $tmp $AgentFile -Force
+      }
+    } else {
+      Move-Item $tmp $AgentFile -Force
+    }
+
+    Write-Log ('Self-update preparado e validado: ' + [string]$manifest.version + ' hash=' + $expectedHash)
     try { $script:BridgeMutex.ReleaseMutex() } catch {}
     Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$AgentFile) -WindowStyle Hidden
+    Start-Sleep -Milliseconds 300
     exit
   } catch {
     Write-Log ('Self-update falhou: ' + $_.Exception.Message)
@@ -569,6 +656,8 @@ Write-Log ("Agente V2 iniciado PID=$PID last=$lastId")
 Post-Comment ("RB2_STATUS" + [Environment]::NewLine + (Encode-Json @{
   status='online'; version=$Version; pid=$PID; machine=$env:COMPUTERNAME; timestamp=(Get-Date).ToString('o')
 })) | Out-Null
+Write-Health 1000
+Remove-Item $PendingFile -Force -ErrorAction SilentlyContinue
 
 $lastUpdateCheck = Get-Date
 $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-10)
