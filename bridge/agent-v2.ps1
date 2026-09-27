@@ -1,0 +1,321 @@
+# REALLBLACK BRIDGE V2
+$ErrorActionPreference = 'Continue'
+
+$Version = '2.0.0'
+$Repo = 'realblackboss/twitch-gpt-gemini-2026'
+$Issue = 1
+$Trusted = 'realblackboss'
+$BaseDir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
+$StateFile = Join-Path $BaseDir 'state-v2.json'
+$LogFile = Join-Path $BaseDir 'bridge-v2.log'
+$AgentFile = Join-Path $BaseDir 'agent-v2.ps1'
+$AgentUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/agent-v2.ps1'
+
+$Roots = @{
+  desktop   = [Environment]::GetFolderPath('Desktop')
+  documents = [Environment]::GetFolderPath('MyDocuments')
+  downloads = Join-Path $env:USERPROFILE 'Downloads'
+  bridge    = $BaseDir
+}
+
+function Write-Log([string]$Message) {
+  try {
+    New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
+    Add-Content -Path $LogFile -Value ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'), $Message)
+    if ((Get-Item $LogFile -ErrorAction SilentlyContinue).Length -gt 1048576) {
+      Move-Item $LogFile ($LogFile + '.1') -Force -ErrorAction SilentlyContinue
+    }
+  } catch {}
+}
+
+function Post-Comment([string]$Body) {
+  try {
+    @{ body = $Body } | ConvertTo-Json -Compress | gh api --method POST "repos/$Repo/issues/$Issue/comments" --input - *> $null
+    return ($LASTEXITCODE -eq 0)
+  } catch { return $false }
+}
+
+function Encode-Json($Object) {
+  $json = $Object | ConvertTo-Json -Compress -Depth 8
+  return [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
+}
+
+function Decode-Json([string]$Base64) {
+  $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Base64))
+  return ($json | ConvertFrom-Json)
+}
+
+function Reply([string]$Id, [bool]$Ok, $Data, [string]$ErrorText = '') {
+  $payload = [ordered]@{
+    id = $Id
+    ok = $Ok
+    version = $Version
+    machine = $env:COMPUTERNAME
+    timestamp = (Get-Date).ToString('o')
+    data = $Data
+    error = $ErrorText
+  }
+  Post-Comment ("RB2_RESULT $Id" + [Environment]::NewLine + (Encode-Json $payload)) | Out-Null
+}
+
+function Resolve-SafePath([string]$RootName, [string]$RelativePath) {
+  if (-not $Roots.ContainsKey($RootName)) { throw 'root_not_allowed' }
+  if ([IO.Path]::IsPathRooted($RelativePath)) { throw 'absolute_path_not_allowed' }
+
+  $root = [IO.Path]::GetFullPath([string]$Roots[$RootName]).TrimEnd('\')
+  $full = [IO.Path]::GetFullPath((Join-Path $root $RelativePath))
+  if ($full -ne $root -and -not $full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'path_escape_blocked'
+  }
+  return $full
+}
+
+function Get-State {
+  if (Test-Path $StateFile) {
+    try { return (Get-Content $StateFile -Raw | ConvertFrom-Json) } catch {}
+  }
+  return [pscustomobject]@{ lastCommentId = 0 }
+}
+
+function Save-State([long]$LastCommentId) {
+  @{ lastCommentId = $LastCommentId } | ConvertTo-Json -Compress | Set-Content $StateFile -Encoding UTF8
+}
+
+function Get-MaxCommentId {
+  try {
+    $raw = & gh api "repos/$Repo/issues/$Issue/comments?per_page=100"
+    if ($LASTEXITCODE -ne 0) { return 0 }
+    $comments = $raw | ConvertFrom-Json
+    $max = 0L
+    foreach ($c in @($comments)) {
+      if ([long]$c.id -gt $max) { $max = [long]$c.id }
+    }
+    return $max
+  } catch { return 0 }
+}
+
+function Get-SystemInfo {
+  $os = Get-CimInstance Win32_OperatingSystem
+  $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+  $disks = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object {
+    [ordered]@{
+      drive = $_.DeviceID
+      sizeGB = [Math]::Round($_.Size / 1GB, 1)
+      freeGB = [Math]::Round($_.FreeSpace / 1GB, 1)
+    }
+  }
+  return [ordered]@{
+    computer = $env:COMPUTERNAME
+    user = $env:USERNAME
+    os = $os.Caption
+    cpu = $cpu.Name
+    memoryGB = [Math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
+    freeMemoryGB = [Math]::Round($os.FreePhysicalMemory / 1MB, 1)
+    disks = @($disks)
+  }
+}
+
+function Invoke-AllowedOperation([string]$Op, $Args) {
+  switch ($Op.ToUpperInvariant()) {
+    'PING' {
+      return @{ pong = $true }
+    }
+
+    'BRIDGE_INFO' {
+      return @{ version = $Version; pid = $PID; roots = @($Roots.Keys); pollMs = 1500 }
+    }
+
+    'SYSINFO' {
+      return Get-SystemInfo
+    }
+
+    'MKDIR' {
+      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      New-Item -ItemType Directory -Force -Path $p | Out-Null
+      return @{ path = $p; created = $true }
+    }
+
+    'EXISTS' {
+      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      return @{ path = $p; exists = (Test-Path $p) }
+    }
+
+    'LIST' {
+      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      if (-not (Test-Path $p -PathType Container)) { throw 'directory_not_found' }
+      $items = Get-ChildItem -LiteralPath $p -Force | Select-Object -First 500 | ForEach-Object {
+        [ordered]@{
+          name = $_.Name
+          type = if ($_.PSIsContainer) { 'dir' } else { 'file' }
+          length = if ($_.PSIsContainer) { $null } else { $_.Length }
+          modified = $_.LastWriteTime.ToString('o')
+        }
+      }
+      return @{ path = $p; items = @($items) }
+    }
+
+    'READ_TEXT' {
+      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      if (-not (Test-Path $p -PathType Leaf)) { throw 'file_not_found' }
+      $item = Get-Item -LiteralPath $p
+      if ($item.Length -gt 262144) { throw 'file_too_large' }
+      return @{ path = $p; text = (Get-Content -LiteralPath $p -Raw -ErrorAction Stop) }
+    }
+
+    'WRITE_TEXT' {
+      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      $text = [string]$Args.text
+      if ([Text.Encoding]::UTF8.GetByteCount($text) -gt 1048576) { throw 'content_too_large' }
+      $parent = Split-Path -Parent $p
+      New-Item -ItemType Directory -Force -Path $parent | Out-Null
+      Set-Content -LiteralPath $p -Value $text -Encoding UTF8
+      return @{ path = $p; bytes = [Text.Encoding]::UTF8.GetByteCount($text) }
+    }
+
+    'APPEND_TEXT' {
+      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      $text = [string]$Args.text
+      if ([Text.Encoding]::UTF8.GetByteCount($text) -gt 262144) { throw 'content_too_large' }
+      $parent = Split-Path -Parent $p
+      New-Item -ItemType Directory -Force -Path $parent | Out-Null
+      Add-Content -LiteralPath $p -Value $text -Encoding UTF8
+      return @{ path = $p; appended = $true }
+    }
+
+    'MOVE' {
+      $src = Resolve-SafePath ([string]$Args.root) ([string]$Args.source)
+      $dst = Resolve-SafePath ([string]$Args.root) ([string]$Args.destination)
+      if (-not (Test-Path $src)) { throw 'source_not_found' }
+      $parent = Split-Path -Parent $dst
+      New-Item -ItemType Directory -Force -Path $parent | Out-Null
+      Move-Item -LiteralPath $src -Destination $dst -Force
+      return @{ source = $src; destination = $dst }
+    }
+
+    'COPY' {
+      $src = Resolve-SafePath ([string]$Args.root) ([string]$Args.source)
+      $dst = Resolve-SafePath ([string]$Args.root) ([string]$Args.destination)
+      if (-not (Test-Path $src)) { throw 'source_not_found' }
+      $parent = Split-Path -Parent $dst
+      New-Item -ItemType Directory -Force -Path $parent | Out-Null
+      Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force
+      return @{ source = $src; destination = $dst }
+    }
+
+    'PROC_LIST' {
+      $items = Get-Process | Sort-Object CPU -Descending | Select-Object -First 200 | ForEach-Object {
+        [ordered]@{
+          pid = $_.Id
+          name = $_.ProcessName
+          cpu = if ($null -eq $_.CPU) { 0 } else { [Math]::Round($_.CPU, 1) }
+          memoryMB = [Math]::Round($_.WorkingSet64 / 1MB, 1)
+        }
+      }
+      return @{ processes = @($items) }
+    }
+
+    'PROC_STOP' {
+      $target = Get-Process -Id ([int]$Args.pid) -ErrorAction Stop
+      $protected = @('System','Idle','Registry','Memory Compression','smss','csrss','wininit','winlogon','services','lsass','svchost','dwm')
+      if ($target.Id -eq $PID -or $protected -contains $target.ProcessName) { throw 'protected_process' }
+      Stop-Process -Id $target.Id -Force -ErrorAction Stop
+      return @{ pid = $target.Id; name = $target.ProcessName; stopped = $true }
+    }
+
+    default {
+      throw 'operation_not_allowed'
+    }
+  }
+}
+
+function Check-SelfUpdate {
+  try {
+    $tmp = Join-Path $BaseDir 'agent-v2.new.ps1'
+    Invoke-WebRequest -UseBasicParsing -Uri ($AgentUrl + '?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -OutFile $tmp -TimeoutSec 15
+    $newHash = (Get-FileHash $tmp -Algorithm SHA256).Hash
+    $oldHash = (Get-FileHash $AgentFile -Algorithm SHA256).Hash
+    if ($newHash -ne $oldHash) {
+      Move-Item $tmp $AgentFile -Force
+      Write-Log 'Self-update instalado; reiniciando agente.'
+      Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$AgentFile) -WindowStyle Hidden
+      exit
+    }
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+  } catch {
+    Write-Log ('Self-update falhou: ' + $_.Exception.Message)
+  }
+}
+
+New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
+
+$state = Get-State
+$lastId = [long]$state.lastCommentId
+if ($lastId -eq 0) {
+  $lastId = Get-MaxCommentId
+  Save-State $lastId
+}
+
+Write-Log ("Agente V2 iniciado PID=$PID last=$lastId")
+Post-Comment ("RB2_STATUS" + [Environment]::NewLine + (Encode-Json @{
+  status='online'; version=$Version; pid=$PID; machine=$env:COMPUTERNAME; timestamp=(Get-Date).ToString('o')
+})) | Out-Null
+
+$lastHeartbeat = Get-Date
+$lastUpdateCheck = Get-Date
+
+while ($true) {
+  try {
+    $raw = & gh api "repos/$Repo/issues/$Issue/comments?per_page=100"
+    if ($LASTEXITCODE -eq 0) {
+      $comments = $raw | ConvertFrom-Json
+      foreach ($c in @($comments | Sort-Object id)) {
+        $cid = [long]$c.id
+        if ($cid -le $lastId) { continue }
+
+        $lastId = $cid
+        Save-State $lastId
+
+        if ($c.user.login -ne $Trusted) { continue }
+        $body = [string]$c.body
+        if (-not $body.StartsWith('RB2_CMD ')) { continue }
+
+        $lines = $body -split "\r?\n"
+        $header = $lines[0].Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+        if ($header.Count -lt 3) { continue }
+
+        $cmdId = [string]$header[1]
+        $op = [string]$header[2]
+        $args = [pscustomobject]@{}
+        if ($lines.Count -ge 2 -and -not [string]::IsNullOrWhiteSpace($lines[1])) {
+          try { $args = Decode-Json $lines[1].Trim() } catch {
+            Reply $cmdId $false $null 'invalid_payload'
+            continue
+          }
+        }
+
+        try {
+          $result = Invoke-AllowedOperation $op $args
+          Reply $cmdId $true $result ''
+        } catch {
+          Reply $cmdId $false $null $_.Exception.Message
+        }
+      }
+    }
+  } catch {
+    Write-Log ('Loop error: ' + $_.Exception.Message)
+  }
+
+  if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 60) {
+    Post-Comment ("RB2_HEARTBEAT" + [Environment]::NewLine + (Encode-Json @{
+      version=$Version; pid=$PID; machine=$env:COMPUTERNAME; timestamp=(Get-Date).ToString('o')
+    })) | Out-Null
+    $lastHeartbeat = Get-Date
+  }
+
+  if (((Get-Date) - $lastUpdateCheck).TotalMinutes -ge 10) {
+    Check-SelfUpdate
+    $lastUpdateCheck = Get-Date
+  }
+
+  Start-Sleep -Milliseconds 1500
+}
