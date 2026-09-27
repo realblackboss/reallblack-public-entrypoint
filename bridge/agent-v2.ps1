@@ -1141,7 +1141,11 @@ function Get-PublicRepoRawHeaders {
 function Get-PublicRepoFileText([string]$Path) {
   $uri = $ApiBase + '/repos/' + $PublicRepo + '/contents/' + $Path + '?ref=main'
   $r = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri -Headers (Get-PublicRepoRawHeaders) -TimeoutSec 20
-  return [string]$r.Content
+  $raw = $r.Content
+  if ($raw -is [byte[]]) {
+    return [Text.Encoding]::UTF8.GetString($raw)
+  }
+  return [string]$raw
 }
 
 function Download-PublicRepoFile([string]$Path, [string]$Destination) {
