@@ -5,6 +5,7 @@ $Dir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
 $Agent = Join-Path $Dir 'agent-v2.ps1'
 $Desktop = [Environment]::GetFolderPath('Desktop')
 $Startup = [Environment]::GetFolderPath('Startup')
+$OldStartup = Join-Path $Startup 'REALLBLACK-PC-BRIDGE.cmd'
 $AgentUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/agent-v2.ps1'
 
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
@@ -27,6 +28,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Invoke-WebRequest -UseBasicParsing -Uri ($AgentUrl + '?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -OutFile $Agent
+Remove-Item $OldStartup -Force -ErrorAction SilentlyContinue
 
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
   Where-Object {
