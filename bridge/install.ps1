@@ -68,7 +68,7 @@ while ($true) {
         }
 
         if (-not $Body.StartsWith('BRIDGE_MKDIR_V1')) { continue }
-        $Lines = $Body -split [Environment]::NewLine
+        $Lines = $Body -split "\r?\n"
         if ($Lines.Count -lt 2) { continue }
 
         try {
@@ -95,6 +95,12 @@ $Launch = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass
 
 Set-Content -Path (Join-Path $Startup 'REALLBLACK-PC-BRIDGE.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
 Set-Content -Path (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
+
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+  Where-Object { $_.CommandLine -like '*ReallBlackBridge*desktop-folder-agent.ps1*' } |
+  ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force } catch {} }
+
+Remove-Item (Join-Path $Dir 'last_comment.txt') -Force -ErrorAction SilentlyContinue
 
 Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden
 
