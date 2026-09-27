@@ -6,7 +6,7 @@ $Agent = Join-Path $Dir 'agent-v2.ps1'
 $Desktop = [Environment]::GetFolderPath('Desktop')
 $Startup = [Environment]::GetFolderPath('Startup')
 $OldStartup = Join-Path $Startup 'REALLBLACK-PC-BRIDGE.cmd'
-$AgentUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/agent-v2.ps1'
+$ManifestUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/manifest-v2.json'
 
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Desktop 'funcionando') | Out-Null
@@ -27,7 +27,21 @@ if ($LASTEXITCODE -ne 0) {
   if ($LASTEXITCODE -ne 0) { throw 'Falha na autenticacao do GitHub.' }
 }
 
-Invoke-WebRequest -UseBasicParsing -Uri ($AgentUrl + '?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) -OutFile $Agent
+$stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$manifest = Invoke-RestMethod -UseBasicParsing -Uri ($ManifestUrl + '?t=' + $stamp) -TimeoutSec 15
+if ([string]::IsNullOrWhiteSpace([string]$manifest.url) -or [string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
+  throw 'Manifesto da ponte invalido.'
+}
+
+$tmpAgent = Join-Path $Dir 'agent-v2.download.ps1'
+Invoke-WebRequest -UseBasicParsing -Uri ([string]$manifest.url) -OutFile $tmpAgent -TimeoutSec 20
+$downloadHash = (Get-FileHash $tmpAgent -Algorithm SHA256).Hash.ToLowerInvariant()
+$expectedHash = ([string]$manifest.sha256).ToLowerInvariant()
+if ($downloadHash -ne $expectedHash) {
+  Remove-Item $tmpAgent -Force -ErrorAction SilentlyContinue
+  throw 'Falha de integridade: hash da ponte nao confere.'
+}
+Move-Item $tmpAgent $Agent -Force
 Remove-Item $OldStartup -Force -ErrorAction SilentlyContinue
 
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
@@ -56,8 +70,9 @@ Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden
 
 Write-Host ''
 Write-Host 'PONTE REALLBLACK V2 INSTALADA E INICIADA.' -ForegroundColor Green
-Write-Host 'Velocidade: polling aproximado de 1,5 segundo.'
+Write-Host 'Velocidade: 1 s ativo / 4 s ocioso com ETag e backoff.'
 Write-Host 'Autostart: Startup + tarefa agendada de recuperacao.'
-Write-Host 'Atualizacao automatica: ativa a cada 2 minutos + SELF_UPDATE sob demanda.'
+Write-Host 'Atualizacao: manifesto versionado + SHA-256, checado automaticamente.'
 Write-Host ('Agente: ' + $Agent)
+Write-Host ('Versao: ' + [string]$manifest.version)
 Write-Host ('Atalho: ' + (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd'))
