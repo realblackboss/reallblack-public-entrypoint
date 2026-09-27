@@ -86,6 +86,9 @@ if (-not (Test-ScriptSyntax $tmpAgent)) {
   throw 'Falha de seguranca: agente baixado possui erro de sintaxe.'
 }
 
+try { Disable-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -ErrorAction SilentlyContinue | Out-Null } catch {}
+try { Stop-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -ErrorAction SilentlyContinue | Out-Null } catch {}
+
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
   Where-Object {
     $_.CommandLine -like '*ReallBlackBridge*desktop-folder-agent.ps1*' -or
@@ -110,7 +113,6 @@ if (Test-Path $Agent -PathType Leaf) {
 Remove-Item $OldStartup -Force -ErrorAction SilentlyContinue
 Remove-Item $Pending -Force -ErrorAction SilentlyContinue
 Remove-Item $Health -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $Dir 'state-v2.json') -Force -ErrorAction SilentlyContinue
 
 $Launch = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Agent + '"'
 Set-Content -Path (Join-Path $Startup 'REALLBLACK-PC-BRIDGE-V2.cmd') -Value ('@echo off' + [Environment]::NewLine + $Launch) -Encoding ASCII
@@ -121,19 +123,25 @@ try {
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)
   Register-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -Action $action -Trigger $trigger -Settings $settings -Description 'REALLBLACK Bridge resilient agent with rollback' -Force | Out-Null
+  Enable-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -ErrorAction SilentlyContinue | Out-Null
 } catch {}
 
 $proc = Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden -PassThru
 
 $healthy = $false
-$deadline = (Get-Date).AddSeconds(20)
+$deadline = (Get-Date).AddSeconds(75)
 do {
   Start-Sleep -Milliseconds 500
   if (Test-Path $Health -PathType Leaf) {
     try {
       $h = Get-Content $Health -Raw | ConvertFrom-Json
-      if ([int]$h.pid -eq [int]$proc.Id) {
+      $healthFresh = $false
+      try { $healthFresh = (((Get-Date) - ([datetime]$h.timestamp)).TotalSeconds -lt 30) } catch {}
+      $ready = $true
+      if ($h.PSObject.Properties['ready']) { $ready = [bool]$h.ready }
+      if ($healthFresh -and $ready -and [string]$h.version -eq [string]$manifest.version) {
         $healthy = $true
+        $healthyPid = [int]$h.pid
         break
       }
     } catch {}
@@ -159,6 +167,6 @@ if (-not $healthy) {
 Write-Host ''
 Write-Host 'PONTE REALLBLACK RECUPERADA E VALIDADA.' -ForegroundColor Green
 Write-Host ('Versao: ' + [string]$manifest.version)
-Write-Host ('PID: ' + [string]$proc.Id)
+Write-Host ('PID: ' + [string]$healthyPid)
 Write-Host 'Protecoes: SHA-256 + sintaxe + health-check + backup + rollback.'
 Write-Host ('Atalho: ' + (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd'))
