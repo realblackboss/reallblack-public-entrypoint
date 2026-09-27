@@ -83,12 +83,14 @@ function Save-State([long]$LastCommentId) {
 
 function Get-MaxCommentId {
   try {
-    $raw = & gh api "repos/$Repo/issues/$Issue/comments?per_page=100"
+    $raw = & gh api --paginate "repos/$Repo/issues/$Issue/comments?per_page=100" --slurp
     if ($LASTEXITCODE -ne 0) { return 0 }
-    $comments = $raw | ConvertFrom-Json
+    $pages = $raw | ConvertFrom-Json
     $max = 0L
-    foreach ($c in @($comments)) {
-      if ([long]$c.id -gt $max) { $max = [long]$c.id }
+    foreach ($page in @($pages)) {
+      foreach ($c in @($page)) {
+        if ([long]$c.id -gt $max) { $max = [long]$c.id }
+      }
     }
     return $max
   } catch { return 0 }
@@ -260,12 +262,13 @@ Post-Comment ("RB2_STATUS" + [Environment]::NewLine + (Encode-Json @{
   status='online'; version=$Version; pid=$PID; machine=$env:COMPUTERNAME; timestamp=(Get-Date).ToString('o')
 })) | Out-Null
 
-$lastHeartbeat = Get-Date
 $lastUpdateCheck = Get-Date
+$pollSince = (Get-Date).ToUniversalTime().AddSeconds(-10)
 
 while ($true) {
   try {
-    $raw = & gh api "repos/$Repo/issues/$Issue/comments?per_page=100"
+    $sinceIso = [uri]::EscapeDataString($pollSince.ToString('o'))
+    $raw = & gh api "repos/$Repo/issues/$Issue/comments?per_page=100&since=$sinceIso"
     if ($LASTEXITCODE -eq 0) {
       $comments = $raw | ConvertFrom-Json
       foreach ($c in @($comments | Sort-Object id)) {
@@ -301,15 +304,9 @@ while ($true) {
         }
       }
     }
+    $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-5)
   } catch {
     Write-Log ('Loop error: ' + $_.Exception.Message)
-  }
-
-  if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 60) {
-    Post-Comment ("RB2_HEARTBEAT" + [Environment]::NewLine + (Encode-Json @{
-      version=$Version; pid=$PID; machine=$env:COMPUTERNAME; timestamp=(Get-Date).ToString('o')
-    })) | Out-Null
-    $lastHeartbeat = Get-Date
   }
 
   if (((Get-Date) - $lastUpdateCheck).TotalMinutes -ge 10) {
