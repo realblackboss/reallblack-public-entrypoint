@@ -3,10 +3,25 @@ param()
 $ErrorActionPreference = 'Stop'
 $Dir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
 $Agent = Join-Path $Dir 'agent-v2.ps1'
+$Backup = Join-Path $Dir 'agent-v2.lastgood.ps1'
+$Health = Join-Path $Dir 'health-v2.json'
+$Pending = Join-Path $Dir 'update-pending.json'
 $Desktop = [Environment]::GetFolderPath('Desktop')
 $Startup = [Environment]::GetFolderPath('Startup')
 $OldStartup = Join-Path $Startup 'REALLBLACK-PC-BRIDGE.cmd'
 $ManifestUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/manifest-v2.json'
+
+function Test-ScriptSyntax([string]$Path) {
+  if (-not (Test-Path $Path -PathType Leaf)) { return $false }
+  try {
+    $tokens = $null
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors) | Out-Null
+    return (@($errors).Count -eq 0)
+  } catch {
+    return $false
+  }
+}
 
 New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Desktop 'funcionando') | Out-Null
@@ -34,25 +49,44 @@ if ([string]::IsNullOrWhiteSpace([string]$manifest.url) -or [string]::IsNullOrWh
 }
 
 $tmpAgent = Join-Path $Dir 'agent-v2.download.ps1'
-Invoke-WebRequest -UseBasicParsing -Uri ([string]$manifest.url) -OutFile $tmpAgent -TimeoutSec 20
+Remove-Item $tmpAgent -Force -ErrorAction SilentlyContinue
+Invoke-WebRequest -UseBasicParsing -Uri ([string]$manifest.url + '?t=' + $stamp) -OutFile $tmpAgent -TimeoutSec 20
+
 $downloadHash = (Get-FileHash $tmpAgent -Algorithm SHA256).Hash.ToLowerInvariant()
 $expectedHash = ([string]$manifest.sha256).ToLowerInvariant()
 if ($downloadHash -ne $expectedHash) {
   Remove-Item $tmpAgent -Force -ErrorAction SilentlyContinue
   throw 'Falha de integridade: hash da ponte nao confere.'
 }
-Move-Item $tmpAgent $Agent -Force
-Remove-Item $OldStartup -Force -ErrorAction SilentlyContinue
+if (-not (Test-ScriptSyntax $tmpAgent)) {
+  Remove-Item $tmpAgent -Force -ErrorAction SilentlyContinue
+  throw 'Falha de seguranca: agente baixado possui erro de sintaxe.'
+}
 
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
   Where-Object {
     $_.CommandLine -like '*ReallBlackBridge*desktop-folder-agent.ps1*' -or
-    $_.CommandLine -like '*ReallBlackBridge*agent-v2.ps1*'
+    $_.CommandLine -like '*ReallBlackBridge*agent-v2.ps1*' -or
+    $_.CommandLine -like '*ReallBlackBridge*watchdog-v2.ps1*'
   } |
   ForEach-Object {
     try { Stop-Process -Id $_.ProcessId -Force } catch {}
   }
+Start-Sleep -Milliseconds 400
 
+if (Test-Path $Agent -PathType Leaf) {
+  if (Test-ScriptSyntax $Agent) {
+    [IO.File]::Replace($tmpAgent, $Agent, $Backup, $true)
+  } else {
+    Move-Item $tmpAgent $Agent -Force
+  }
+} else {
+  Move-Item $tmpAgent $Agent -Force
+}
+
+Remove-Item $OldStartup -Force -ErrorAction SilentlyContinue
+Remove-Item $Pending -Force -ErrorAction SilentlyContinue
+Remove-Item $Health -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $Dir 'state-v2.json') -Force -ErrorAction SilentlyContinue
 
 $Launch = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Agent + '"'
@@ -63,16 +97,45 @@ try {
   $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Agent + '"')
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)
-  Register-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -Action $action -Trigger $trigger -Settings $settings -Description 'REALLBLACK Bridge V2 fast resilient agent' -Force | Out-Null
+  Register-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -Action $action -Trigger $trigger -Settings $settings -Description 'REALLBLACK Bridge resilient agent with rollback' -Force | Out-Null
 } catch {}
 
-Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden
+$proc = Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden -PassThru
+
+$healthy = $false
+$deadline = (Get-Date).AddSeconds(20)
+do {
+  Start-Sleep -Milliseconds 500
+  if (Test-Path $Health -PathType Leaf) {
+    try {
+      $h = Get-Content $Health -Raw | ConvertFrom-Json
+      if ([int]$h.pid -eq [int]$proc.Id) {
+        $healthy = $true
+        break
+      }
+    } catch {}
+  }
+  try {
+    if ($proc.HasExited) { break }
+  } catch {}
+} while ((Get-Date) -lt $deadline)
+
+if (-not $healthy) {
+  try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+
+  if (Test-ScriptSyntax $Backup) {
+    Copy-Item -LiteralPath $Backup -Destination $Agent -Force
+    Remove-Item $Health -Force -ErrorAction SilentlyContinue
+    Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden
+    throw 'A nova ponte nao passou no teste de saude. Rollback automatico aplicado.'
+  }
+
+  throw 'A ponte nao passou no teste de saude e nao existe backup valido.'
+}
 
 Write-Host ''
-Write-Host 'PONTE REALLBLACK V2 INSTALADA E INICIADA.' -ForegroundColor Green
-Write-Host 'Velocidade: 1 s ativo / 4 s ocioso com ETag e backoff.'
-Write-Host 'Autostart: Startup + tarefa agendada de recuperacao.'
-Write-Host 'Atualizacao: manifesto versionado + SHA-256, checado automaticamente.'
-Write-Host ('Agente: ' + $Agent)
+Write-Host 'PONTE REALLBLACK RECUPERADA E VALIDADA.' -ForegroundColor Green
 Write-Host ('Versao: ' + [string]$manifest.version)
+Write-Host ('PID: ' + [string]$proc.Id)
+Write-Host 'Protecoes: SHA-256 + sintaxe + health-check + backup + rollback.'
 Write-Host ('Atalho: ' + (Join-Path $Desktop 'LIGAR PONTE - REALLBLACK.cmd'))
