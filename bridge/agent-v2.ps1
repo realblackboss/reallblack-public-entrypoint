@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '3.4.0'
+$Version = '3.5.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -265,6 +265,119 @@ function Get-SystemInfo {
     freeMemoryGB = [Math]::Round($os.FreePhysicalMemory / 1MB, 1)
     disks = @($disks)
   }
+}
+
+
+function Ensure-RBInputNative {
+  if ('RBInputNative' -as [type]) { return }
+  Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class RBInputNative {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct INPUT {
+    public UInt32 type;
+    public InputUnion U;
+  }
+
+  [StructLayout(LayoutKind.Explicit)]
+  public struct InputUnion {
+    [FieldOffset(0)] public MOUSEINPUT mi;
+    [FieldOffset(0)] public KEYBDINPUT ki;
+    [FieldOffset(0)] public HARDWAREINPUT hi;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct MOUSEINPUT {
+    public Int32 dx;
+    public Int32 dy;
+    public UInt32 mouseData;
+    public UInt32 dwFlags;
+    public UInt32 time;
+    public UIntPtr dwExtraInfo;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct KEYBDINPUT {
+    public UInt16 wVk;
+    public UInt16 wScan;
+    public UInt32 dwFlags;
+    public UInt32 time;
+    public UIntPtr dwExtraInfo;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct HARDWAREINPUT {
+    public UInt32 uMsg;
+    public UInt16 wParamL;
+    public UInt16 wParamH;
+  }
+
+  [DllImport("user32.dll")]
+  public static extern bool SetCursorPos(int X, int Y);
+
+  [DllImport("user32.dll")]
+  public static extern bool GetCursorPos(out POINT lpPoint);
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct POINT {
+    public int X;
+    public int Y;
+  }
+
+  [DllImport("user32.dll")]
+  public static extern void mouse_event(UInt32 dwFlags, UInt32 dx, UInt32 dy, Int32 dwData, UIntPtr dwExtraInfo);
+
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern UInt32 SendInput(UInt32 nInputs, INPUT[] pInputs, Int32 cbSize);
+
+  [DllImport("user32.dll")]
+  public static extern void keybd_event(byte bVk, byte bScan, UInt32 dwFlags, UIntPtr dwExtraInfo);
+
+  public const UInt32 INPUT_KEYBOARD = 1;
+  public const UInt32 KEYEVENTF_KEYUP = 0x0002;
+  public const UInt32 KEYEVENTF_UNICODE = 0x0004;
+
+  public const UInt32 MOUSEEVENTF_LEFTDOWN = 0x0002;
+  public const UInt32 MOUSEEVENTF_LEFTUP = 0x0004;
+  public const UInt32 MOUSEEVENTF_RIGHTDOWN = 0x0008;
+  public const UInt32 MOUSEEVENTF_RIGHTUP = 0x0010;
+  public const UInt32 MOUSEEVENTF_MIDDLEDOWN = 0x0020;
+  public const UInt32 MOUSEEVENTF_MIDDLEUP = 0x0040;
+  public const UInt32 MOUSEEVENTF_WHEEL = 0x0800;
+
+  public static bool TypeText(string text) {
+    if (text == null) return false;
+    foreach (char ch in text) {
+      INPUT down = new INPUT();
+      down.type = INPUT_KEYBOARD;
+      down.U.ki = new KEYBDINPUT();
+      down.U.ki.wScan = ch;
+      down.U.ki.dwFlags = KEYEVENTF_UNICODE;
+
+      INPUT up = down;
+      up.U.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+
+      INPUT[] pair = new INPUT[] { down, up };
+      if (SendInput(2, pair, Marshal.SizeOf(typeof(INPUT))) != 2) return false;
+    }
+    return true;
+  }
+
+  public static void KeyTap(byte vk) {
+    keybd_event(vk, 0, 0, UIntPtr.Zero);
+    keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+
+  public static void KeyCombo(byte modifier, byte key) {
+    keybd_event(modifier, 0, 0, UIntPtr.Zero);
+    keybd_event(key, 0, 0, UIntPtr.Zero);
+    keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    keybd_event(modifier, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+}
+'@
 }
 
 function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
@@ -694,6 +807,96 @@ public static class RBWindowMoveNative {
       if ($stdout.Length -gt 24000) { $stdout = $stdout.Substring(0,24000) }
       if ($stderr.Length -gt 8000) { $stderr = $stderr.Substring(0,8000) }
       return @{ tool=$tool; exitCode=$p.ExitCode; stdout=$stdout; stderr=$stderr }
+    }
+
+
+    'MOUSE_POSITION' {
+      Ensure-RBInputNative
+      $pt = New-Object RBInputNative+POINT
+      [RBInputNative]::GetCursorPos([ref]$pt) | Out-Null
+      return @{ x=$pt.X; y=$pt.Y }
+    }
+
+    'MOUSE_MOVE' {
+      Ensure-RBInputNative
+      $x = [int]$CmdArgs.x
+      $y = [int]$CmdArgs.y
+      if ($x -lt -10000 -or $x -gt 20000 -or $y -lt -10000 -or $y -gt 20000) { throw 'invalid_coordinates' }
+      $ok = [RBInputNative]::SetCursorPos($x,$y)
+      return @{ moved=[bool]$ok; x=$x; y=$y }
+    }
+
+    'MOUSE_CLICK' {
+      Ensure-RBInputNative
+      $button = ([string]$CmdArgs.button).ToLowerInvariant()
+      $clicks = [int]$CmdArgs.clicks
+      if ($clicks -lt 1) { $clicks = 1 }
+      if ($clicks -gt 2) { throw 'too_many_clicks' }
+
+      switch ($button) {
+        'left' { $down=[RBInputNative]::MOUSEEVENTF_LEFTDOWN; $up=[RBInputNative]::MOUSEEVENTF_LEFTUP }
+        'right' { $down=[RBInputNative]::MOUSEEVENTF_RIGHTDOWN; $up=[RBInputNative]::MOUSEEVENTF_RIGHTUP }
+        'middle' { $down=[RBInputNative]::MOUSEEVENTF_MIDDLEDOWN; $up=[RBInputNative]::MOUSEEVENTF_MIDDLEUP }
+        default { throw 'mouse_button_not_allowed' }
+      }
+
+      for ($i=0; $i -lt $clicks; $i++) {
+        [RBInputNative]::mouse_event($down,0,0,0,[UIntPtr]::Zero)
+        [RBInputNative]::mouse_event($up,0,0,0,[UIntPtr]::Zero)
+        if ($clicks -gt 1) { Start-Sleep -Milliseconds 90 }
+      }
+      return @{ clicked=$true; button=$button; clicks=$clicks }
+    }
+
+    'MOUSE_SCROLL' {
+      Ensure-RBInputNative
+      $lines = [int]$CmdArgs.lines
+      if ($lines -lt -10 -or $lines -gt 10) { throw 'scroll_out_of_range' }
+      [RBInputNative]::mouse_event([RBInputNative]::MOUSEEVENTF_WHEEL,0,0,($lines * 120),[UIntPtr]::Zero)
+      return @{ scrolled=$true; lines=$lines }
+    }
+
+    'TYPE_TEXT' {
+      Ensure-RBInputNative
+      $text = [string]$CmdArgs.text
+      if ($text.Length -gt 2000) { throw 'text_too_large' }
+      $ok = [RBInputNative]::TypeText($text)
+      return @{ typed=[bool]$ok; length=$text.Length }
+    }
+
+    'KEY_PRESS' {
+      Ensure-RBInputNative
+      $key = ([string]$CmdArgs.key).ToUpperInvariant()
+      $map = @{
+        'BACKSPACE'=0x08; 'TAB'=0x09; 'ENTER'=0x0D; 'ESC'=0x1B; 'SPACE'=0x20
+        'PGUP'=0x21; 'PGDN'=0x22; 'END'=0x23; 'HOME'=0x24
+        'LEFT'=0x25; 'UP'=0x26; 'RIGHT'=0x27; 'DOWN'=0x28
+        'DELETE'=0x2E
+        'F1'=0x70; 'F2'=0x71; 'F3'=0x72; 'F4'=0x73; 'F5'=0x74; 'F6'=0x75
+        'F7'=0x76; 'F8'=0x77; 'F9'=0x78; 'F10'=0x79; 'F11'=0x7A; 'F12'=0x7B
+      }
+      if (-not $map.ContainsKey($key)) { throw 'key_not_allowed' }
+      [RBInputNative]::KeyTap([byte]$map[$key])
+      return @{ pressed=$true; key=$key }
+    }
+
+    'KEY_COMBO' {
+      Ensure-RBInputNative
+      $combo = ([string]$CmdArgs.combo).ToUpperInvariant()
+      switch ($combo) {
+        'CTRL+A' { $mod=0x11; $key=0x41 }
+        'CTRL+C' { $mod=0x11; $key=0x43 }
+        'CTRL+V' { $mod=0x11; $key=0x56 }
+        'CTRL+X' { $mod=0x11; $key=0x58 }
+        'CTRL+Z' { $mod=0x11; $key=0x5A }
+        'CTRL+L' { $mod=0x11; $key=0x4C }
+        'CTRL+S' { $mod=0x11; $key=0x53 }
+        'ALT+TAB' { $mod=0x12; $key=0x09 }
+        'WIN+D' { $mod=0x5B; $key=0x44 }
+        default { throw 'combo_not_allowed' }
+      }
+      [RBInputNative]::KeyCombo([byte]$mod,[byte]$key)
+      return @{ pressed=$true; combo=$combo }
     }
 
     'KEYBOARD_DIAG' {
