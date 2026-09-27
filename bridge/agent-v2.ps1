@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '2.7.0'
+$Version = '2.8.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -110,25 +110,12 @@ function Initialize-GitHubApi {
 
 function Poll-Comments([datetime]$Since) {
   $sinceIso = [uri]::EscapeDataString($Since.ToUniversalTime().ToString('o'))
-  $uri = "$ApiBase/repos/$Repo/issues/$Issue/comments?per_page=100&since=$sinceIso"
-
-  $headers = @{}
-  foreach ($key in $script:GitHubHeaders.Keys) { $headers[$key] = $script:GitHubHeaders[$key] }
-  if (-not [string]::IsNullOrWhiteSpace([string]$script:CommentsEtag)) {
-    $headers['If-None-Match'] = $script:CommentsEtag
-  }
-
   try {
-    $response = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri -Headers $headers -TimeoutSec 15
-    $etag = [string]$response.Headers['ETag']
-    if (-not [string]::IsNullOrWhiteSpace($etag)) { $script:CommentsEtag = $etag }
-    if ([string]::IsNullOrWhiteSpace([string]$response.Content)) { return @() }
-    return @($response.Content | ConvertFrom-Json)
+    $raw = & gh api "repos/$Repo/issues/$Issue/comments?per_page=100&since=$sinceIso"
+    if ($LASTEXITCODE -ne 0) { throw 'github_poll_failed' }
+    if ([string]::IsNullOrWhiteSpace([string]$raw)) { return @() }
+    return @($raw | ConvertFrom-Json)
   } catch {
-    $status = 0
-    try { $status = [int]$_.Exception.Response.StatusCode } catch {}
-    if ($status -eq 304) { return @() }
-    if ($status -eq 403 -or $status -eq 429) { throw 'github_rate_limited' }
     throw
   }
 }
@@ -343,6 +330,76 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
       if ($target.Id -eq $PID -or $protected -contains $target.ProcessName) { throw 'protected_process' }
       Stop-Process -Id $target.Id -Force -ErrorAction Stop
       return @{ pid = $target.Id; name = $target.ProcessName; stopped = $true }
+    }
+
+    'KEYBOARD_DIAG' {
+      $langs = @(Get-WinUserLanguageList | ForEach-Object {
+        [ordered]@{
+          languageTag = $_.LanguageTag
+          inputTips = @($_.InputMethodTips)
+        }
+      })
+      $override = ''
+      try { $override = [string](Get-WinDefaultInputMethodOverride).InputTip } catch {}
+      $scanMapPresent = $false
+      try {
+        $v = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Keyboard Layout' -Name 'Scancode Map' -ErrorAction Stop
+        $scanMapPresent = ($null -ne $v.'Scancode Map')
+      } catch {}
+      return @{ languages=@($langs); override=$override; scancodeMapPresent=$scanMapPresent }
+    }
+
+    'FIX_QUESTION_KEY' {
+      $r = [ordered]@{
+        languageFixed = $false
+        overrideFixed = $false
+        preloadFixed = $false
+        scancodeMapPresent = $false
+        scancodeMapRemoved = $false
+        elevationRequested = $false
+        ctfmonRestarted = $false
+      }
+
+      $l = New-WinUserLanguageList 'pt-BR'
+      $l[0].InputMethodTips.Clear()
+      $l[0].InputMethodTips.Add('0416:00010416')
+      Set-WinUserLanguageList $l -Force
+      $r.languageFixed = $true
+
+      Set-WinDefaultInputMethodOverride -InputTip '0416:00010416'
+      $r.overrideFixed = $true
+
+      New-Item -Path 'HKCU:\Keyboard Layout\Preload' -Force | Out-Null
+      Set-ItemProperty -Path 'HKCU:\Keyboard Layout\Preload' -Name '1' -Value '00010416' -Force
+      $r.preloadFixed = $true
+
+      try {
+        $v = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Keyboard Layout' -Name 'Scancode Map' -ErrorAction Stop
+        if ($null -ne $v.'Scancode Map') {
+          $r.scancodeMapPresent = $true
+          try {
+            Remove-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Keyboard Layout' -Name 'Scancode Map' -Force -ErrorAction Stop
+            $r.scancodeMapRemoved = $true
+          } catch {
+            $adminFix = Join-Path $BaseDir 'fix-question-key-admin.ps1'
+            @"
+Remove-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Keyboard Layout' -Name 'Scancode Map' -Force -ErrorAction SilentlyContinue
+Stop-Process -Name ctfmon -Force -ErrorAction SilentlyContinue
+Start-Process "$env:WINDIR\System32\ctfmon.exe"
+"@ | Set-Content -Path $adminFix -Encoding UTF8
+            try {
+              Start-Process powershell.exe -Verb RunAs -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$adminFix)
+              $r.elevationRequested = $true
+            } catch {}
+          }
+        }
+      } catch {}
+
+      Stop-Process -Name ctfmon -Force -ErrorAction SilentlyContinue
+      Start-Process "$env:WINDIR\System32\ctfmon.exe"
+      $r.ctfmonRestarted = $true
+
+      return $r
     }
 
     default {
