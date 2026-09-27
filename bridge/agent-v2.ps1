@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '3.6.0'
+$Version = '3.7.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -13,7 +13,9 @@ $HealthFile = Join-Path $BaseDir 'health-v2.json'
 $WatchdogFile = Join-Path $BaseDir 'watchdog-v2.ps1'
 $BackupFile = Join-Path $BaseDir 'agent-v2.lastgood.ps1'
 $PendingFile = Join-Path $BaseDir 'update-pending.json'
-$ManifestUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/manifest-v2.json'
+$PublicRepo = 'realblackboss/reallblack-public-entrypoint'
+$ManifestPath = 'bridge/manifest-v2.json'
+$PublicAgentPath = 'bridge/agent-v2.ps1'
 $ApiBase = 'https://api.github.com'
 
 $script:BridgeMutex = New-Object System.Threading.Mutex($false, 'Local\REALLBLACK_BRIDGE_V2')
@@ -1083,11 +1085,32 @@ function Test-PowerShellSyntax([string]$Path) {
   }
 }
 
+
+function Get-PublicRepoRawHeaders {
+  $h = @{}
+  foreach ($k in $script:GitHubHeaders.Keys) { $h[$k] = $script:GitHubHeaders[$k] }
+  $h['Accept'] = 'application/vnd.github.raw+json'
+  return $h
+}
+
+function Get-PublicRepoFileText([string]$Path) {
+  $uri = "$ApiBase/repos/$PublicRepo/contents/$Path?ref=main"
+  $r = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri -Headers (Get-PublicRepoRawHeaders) -TimeoutSec 20
+  return [string]$r.Content
+}
+
+function Download-PublicRepoFile([string]$Path, [string]$Destination) {
+  $uri = "$ApiBase/repos/$PublicRepo/contents/$Path?ref=main"
+  Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri -Headers (Get-PublicRepoRawHeaders) -OutFile $Destination -TimeoutSec 25
+}
+
 function Check-SelfUpdate {
   try {
-    $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-    $manifest = Invoke-RestMethod -UseBasicParsing -Uri ($ManifestUrl + '?t=' + $stamp) -TimeoutSec 15
-    if ([string]::IsNullOrWhiteSpace([string]$manifest.url) -or [string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
+    $manifestText = Get-PublicRepoFileText $ManifestPath
+    if ([string]::IsNullOrWhiteSpace($manifestText)) { throw 'manifest_empty' }
+    $manifest = $manifestText | ConvertFrom-Json
+
+    if ([string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
       throw 'invalid_update_manifest'
     }
 
@@ -1100,7 +1123,7 @@ function Check-SelfUpdate {
 
     $tmp = Join-Path $BaseDir 'agent-v2.candidate.ps1'
     Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-    Invoke-WebRequest -UseBasicParsing -Uri ([string]$manifest.url + '?t=' + $stamp) -OutFile $tmp -TimeoutSec 20
+    Download-PublicRepoFile $PublicAgentPath $tmp
 
     $newHash = (Get-FileHash $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($newHash -ne $expectedHash) {
