@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - bridge/agent-v2.ps1
+      - bridge/screen-helper.ps1
   workflow_dispatch:
 
 permissions:
@@ -23,7 +24,7 @@ jobs:
       - name: Validate PowerShell syntax
         shell: pwsh
         run: |
-          foreach ($file in @('bridge/agent-v2.ps1','bridge/install.ps1')) {
+          foreach ($file in @('bridge/agent-v2.ps1','bridge/install.ps1','bridge/screen-helper.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
