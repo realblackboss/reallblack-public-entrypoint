@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '2.8.0'
+$Version = '2.9.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -109,13 +109,14 @@ function Initialize-GitHubApi {
 }
 
 function Poll-Comments([datetime]$Since) {
-  $sinceIso = [uri]::EscapeDataString($Since.ToUniversalTime().ToString('o'))
   try {
-    $raw = & gh api "repos/$Repo/issues/$Issue/comments?per_page=100&since=$sinceIso"
-    if ($LASTEXITCODE -ne 0) { throw 'github_poll_failed' }
-    if ([string]::IsNullOrWhiteSpace([string]$raw)) { return @() }
-    return @($raw | ConvertFrom-Json)
+    $uri = "$ApiBase/repos/$Repo/issues/$Issue/comments?per_page=100"
+    $comments = Invoke-RestMethod -UseBasicParsing -Method Get -Uri $uri -Headers $script:GitHubHeaders -TimeoutSec 15
+    return @($comments)
   } catch {
+    $status = 0
+    try { $status = [int]$_.Exception.Response.StatusCode } catch {}
+    if ($status -eq 403 -or $status -eq 429) { throw 'github_rate_limited' }
     throw
   }
 }
@@ -454,7 +455,7 @@ Post-Comment ("RB2_STATUS" + [Environment]::NewLine + (Encode-Json @{
 
 $lastUpdateCheck = Get-Date
 $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-10)
-$pollDelayMs = 4000
+$pollDelayMs = 2000
 $activeUntil = (Get-Date).AddSeconds(10)
 $lastHealthWrite = (Get-Date).AddMinutes(-1)
 
@@ -514,7 +515,7 @@ while ($true) {
       }
     }
 
-    if ((Get-Date) -lt $activeUntil) { $pollDelayMs = 1000 } else { $pollDelayMs = 4000 }
+    if ((Get-Date) -lt $activeUntil) { $pollDelayMs = 1000 } else { $pollDelayMs = 2000 }
   } catch {
     Write-Log ('Loop error: ' + $_.Exception.Message)
     if ($_.Exception.Message -eq 'github_rate_limited') {
