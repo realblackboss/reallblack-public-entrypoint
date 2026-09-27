@@ -1,6 +1,6 @@
 {
-  "version": "2.6.0",
-  "url": "https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/37048f1a925591a7d157ac455e85846929bc3194/bridge/agent-v2.ps1",
-  "sha256": "77bd1b3a49697a8c5e55ab79978f95a3a74777a972568b4373d9c6faa0174c54",
-  "released_at": "2026-09-27T01:22:00-03:00"
+  "version": "2.7.0",
+  "url": "https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/5c9ac7018188a0bf89429a48f0326cabc6468a00/bridge/agent-v2.ps1",
+  "sha256": "29cd4e0710bd8f26c6c06fc3a588033d60d6c58685fff68f07029cdf333569bc",
+  "released_at": "2026-09-27T01:25:00-03:00"
 }
