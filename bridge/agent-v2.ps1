@@ -124,12 +124,14 @@ while ($true) {
   }
 }
 
-function Write-Health([int]$PollDelayMs) {
+function Write-Health([int]$PollDelayMs, [bool]$Ready = $true, [string]$Phase = 'ready') {
   try {
     @{
       version = $Version
       pid = $PID
       pollDelayMs = $PollDelayMs
+      ready = $Ready
+      phase = $Phase
       machine = $env:COMPUTERNAME
       timestamp = (Get-Date).ToString('o')
     } | ConvertTo-Json -Compress | Set-Content -Path $HealthFile -Encoding UTF8
@@ -1211,8 +1213,11 @@ function Check-SelfUpdate {
 }
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
+Write-Health 1000 $false 'bootstrap'
 Initialize-GitHubApi
+Write-Health 1000 $false 'github-authenticated'
 Ensure-Watchdog
+Write-Health 1000 $false 'watchdog-ready'
 
 $state = Get-State
 $lastId = [long]$state.lastCommentId
@@ -1225,7 +1230,7 @@ Write-Log ("Agente V2 iniciado PID=$PID last=$lastId")
 Post-Comment ("RB2_STATUS" + [Environment]::NewLine + (Encode-Json @{
   status='online'; version=$Version; pid=$PID; machine=$env:COMPUTERNAME; timestamp=(Get-Date).ToString('o')
 })) | Out-Null
-Write-Health 1000
+Write-Health 1000 $true 'ready'
 Remove-Item $PendingFile -Force -ErrorAction SilentlyContinue
 
 $lastUpdateCheck = Get-Date
@@ -1301,7 +1306,7 @@ while ($true) {
   }
 
   if (((Get-Date) - $lastHealthWrite).TotalSeconds -ge 10) {
-    Write-Health $pollDelayMs
+    Write-Health $pollDelayMs $true 'ready'
     $lastHealthWrite = Get-Date
   }
 
