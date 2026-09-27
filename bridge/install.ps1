@@ -6,6 +6,8 @@ $Agent = Join-Path $Dir 'agent-v2.ps1'
 $Backup = Join-Path $Dir 'agent-v2.lastgood.ps1'
 $Health = Join-Path $Dir 'health-v2.json'
 $Pending = Join-Path $Dir 'update-pending.json'
+$AgentStdout = Join-Path $Dir 'agent-startup.stdout.log'
+$AgentStderr = Join-Path $Dir 'agent-startup.stderr.log'
 $Desktop = [Environment]::GetFolderPath('Desktop')
 $Startup = [Environment]::GetFolderPath('Startup')
 $OldStartup = Join-Path $Startup 'REALLBLACK-PC-BRIDGE.cmd'
@@ -143,7 +145,8 @@ try {
   Enable-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-V2' -ErrorAction SilentlyContinue | Out-Null
 } catch {}
 
-$proc = Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden -PassThru
+Remove-Item $AgentStdout,$AgentStderr -Force -ErrorAction SilentlyContinue
+$proc = Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden -RedirectStandardOutput $AgentStdout -RedirectStandardError $AgentStderr -PassThru
 
 $healthy = $false
 $deadline = (Get-Date).AddSeconds(75)
@@ -169,16 +172,55 @@ do {
 } while ((Get-Date) -lt $deadline)
 
 if (-not $healthy) {
+  $diag = @()
+  try {
+    if (Test-Path $Health -PathType Leaf) {
+      $diag += ('HEALTH=' + (Get-Content $Health -Raw))
+    } else {
+      $diag += 'HEALTH=ausente'
+    }
+  } catch { $diag += ('HEALTH_READ_ERROR=' + $_.Exception.Message) }
+
+  try {
+    if (Test-Path $AgentStderr -PathType Leaf) {
+      $errText = Get-Content $AgentStderr -Raw -ErrorAction SilentlyContinue
+      if (-not [string]::IsNullOrWhiteSpace([string]$errText)) { $diag += ('STDERR=' + $errText.Trim()) }
+    }
+  } catch {}
+
+  try {
+    if (Test-Path $AgentStdout -PathType Leaf) {
+      $outText = Get-Content $AgentStdout -Raw -ErrorAction SilentlyContinue
+      if (-not [string]::IsNullOrWhiteSpace([string]$outText)) { $diag += ('STDOUT=' + $outText.Trim()) }
+    }
+  } catch {}
+
+  try {
+    $bridgeLog = Join-Path $Dir 'bridge-v2.log'
+    if (Test-Path $bridgeLog -PathType Leaf) {
+      $tail = @(Get-Content $bridgeLog -Tail 12 -ErrorAction SilentlyContinue)
+      if ($tail.Count -gt 0) { $diag += ('LOGTAIL=' + ($tail -join ' | ')) }
+    }
+  } catch {}
+
+  try {
+    $proc.Refresh()
+    $diag += ('START_PID=' + [string]$proc.Id + ';EXITED=' + [string]$proc.HasExited + $(if ($proc.HasExited) { ';EXITCODE=' + [string]$proc.ExitCode } else { '' }))
+  } catch {}
+
   try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+
+  $diagText = ($diag -join [Environment]::NewLine)
+  if ($diagText.Length -gt 7000) { $diagText = $diagText.Substring(0,7000) }
 
   if (Test-ScriptSyntax $Backup) {
     Copy-Item -LiteralPath $Backup -Destination $Agent -Force
     Remove-Item $Health -Force -ErrorAction SilentlyContinue
     Start-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden
-    throw 'A nova ponte nao passou no teste de saude. Rollback automatico aplicado.'
+    throw ("A nova ponte nao passou no teste de saude. Rollback automatico aplicado." + [Environment]::NewLine + $diagText)
   }
 
-  throw 'A ponte nao passou no teste de saude e nao existe backup valido.'
+  throw ("A ponte nao passou no teste de saude e nao existe backup valido." + [Environment]::NewLine + $diagText)
 }
 
 Write-Host ''
