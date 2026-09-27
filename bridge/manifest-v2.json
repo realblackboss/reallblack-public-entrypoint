@@ -1,7 +1,7 @@
 {
   "version": "3.8.0",
   "url": "https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/agent-v2.ps1",
-  "sha256": "26c3e8d68eb76ac80f88d874326592398b77a09db72357d3fb24d4f3b9ac71c1",
+  "sha256": "1aa8365d56d9bd1e6ec855e34e8246fc8da736090b2d98582b645e20855eadd1",
   "protections": [
     "sha256",
     "syntax-parse",
