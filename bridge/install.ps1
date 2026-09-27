@@ -147,7 +147,7 @@ try {
 } catch {}
 
 Remove-Item $AgentStdout,$AgentStderr -Force -ErrorAction SilentlyContinue
-$proc = Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$Agent) -WindowStyle Hidden -RedirectStandardOutput $AgentStdout -RedirectStandardError $AgentStderr -PassThru
+$proc = Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','RemoteSigned','-File',$Agent) -WindowStyle Hidden -RedirectStandardOutput $AgentStdout -RedirectStandardError $AgentStderr -PassThru
 
 $healthy = $false
 $deadline = (Get-Date).AddSeconds(75)
