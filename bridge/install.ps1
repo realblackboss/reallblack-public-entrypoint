@@ -9,7 +9,10 @@ $Pending = Join-Path $Dir 'update-pending.json'
 $Desktop = [Environment]::GetFolderPath('Desktop')
 $Startup = [Environment]::GetFolderPath('Startup')
 $OldStartup = Join-Path $Startup 'REALLBLACK-PC-BRIDGE.cmd'
-$ManifestUrl = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/manifest-v2.json'
+$ApiBase = 'https://api.github.com'
+$PublicRepo = 'realblackboss/reallblack-public-entrypoint'
+$ManifestPath = 'bridge/manifest-v2.json'
+$PublicAgentPath = 'bridge/agent-v2.ps1'
 
 function Test-ScriptSyntax([string]$Path) {
   if (-not (Test-Path $Path -PathType Leaf)) { return $false }
@@ -42,15 +45,29 @@ if ($LASTEXITCODE -ne 0) {
   if ($LASTEXITCODE -ne 0) { throw 'Falha na autenticacao do GitHub.' }
 }
 
-$stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-$manifest = Invoke-RestMethod -UseBasicParsing -Uri ($ManifestUrl + '?t=' + $stamp) -TimeoutSec 15
-if ([string]::IsNullOrWhiteSpace([string]$manifest.url) -or [string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
+$token = (& gh auth token -h github.com 2>$null | Select-Object -First 1)
+if ([string]::IsNullOrWhiteSpace([string]$token)) {
+  throw 'Token GitHub indisponivel.'
+}
+
+$RawHeaders = @{
+  Authorization = ('Bearer ' + ([string]$token).Trim())
+  Accept = 'application/vnd.github.raw+json'
+  'X-GitHub-Api-Version' = '2022-11-28'
+  'User-Agent' = 'REALLBLACK-Bridge-Installer'
+}
+
+$manifestUri = "$ApiBase/repos/$PublicRepo/contents/$ManifestPath?ref=main"
+$manifestResponse = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $manifestUri -Headers $RawHeaders -TimeoutSec 20
+$manifest = ([string]$manifestResponse.Content) | ConvertFrom-Json
+if ([string]::IsNullOrWhiteSpace([string]$manifest.sha256)) {
   throw 'Manifesto da ponte invalido.'
 }
 
 $tmpAgent = Join-Path $Dir 'agent-v2.download.ps1'
 Remove-Item $tmpAgent -Force -ErrorAction SilentlyContinue
-Invoke-WebRequest -UseBasicParsing -Uri ([string]$manifest.url + '?t=' + $stamp) -OutFile $tmpAgent -TimeoutSec 20
+$agentUri = "$ApiBase/repos/$PublicRepo/contents/$PublicAgentPath?ref=main"
+Invoke-WebRequest -UseBasicParsing -Method Get -Uri $agentUri -Headers $RawHeaders -OutFile $tmpAgent -TimeoutSec 25
 
 $downloadHash = (Get-FileHash $tmpAgent -Algorithm SHA256).Hash.ToLowerInvariant()
 $expectedHash = ([string]$manifest.sha256).ToLowerInvariant()
