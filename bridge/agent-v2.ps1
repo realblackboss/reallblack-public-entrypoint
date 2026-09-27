@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '2.9.0'
+$Version = '3.0.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -331,6 +331,123 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
       if ($target.Id -eq $PID -or $protected -contains $target.ProcessName) { throw 'protected_process' }
       Stop-Process -Id $target.Id -Force -ErrorAction Stop
       return @{ pid = $target.Id; name = $target.ProcessName; stopped = $true }
+    }
+
+    'KBD_DEEP_AUDIT' {
+      $devices = @()
+      try {
+        $devices = @(Get-CimInstance Win32_Keyboard | ForEach-Object {
+          [ordered]@{
+            name = $_.Name
+            description = $_.Description
+            deviceId = $_.DeviceID
+            pnpDeviceId = $_.PNPDeviceID
+            status = $_.Status
+            layout = $_.Layout
+            availability = $_.Availability
+          }
+        })
+      } catch {}
+
+      $pnp = @()
+      try {
+        $pnp = @(Get-PnpDevice -Class Keyboard -ErrorAction SilentlyContinue | ForEach-Object {
+          [ordered]@{
+            friendlyName = $_.FriendlyName
+            instanceId = $_.InstanceId
+            status = [string]$_.Status
+            problem = [string]$_.Problem
+          }
+        })
+      } catch {}
+
+      $preload = @{}
+      try {
+        $x = Get-ItemProperty 'HKCU:\Keyboard Layout\Preload'
+        foreach ($p in $x.PSObject.Properties) {
+          if ($p.Name -notlike 'PS*') { $preload[$p.Name] = [string]$p.Value }
+        }
+      } catch {}
+
+      $subs = @{}
+      try {
+        $x = Get-ItemProperty 'HKCU:\Keyboard Layout\Substitutes'
+        foreach ($p in $x.PSObject.Properties) {
+          if ($p.Name -notlike 'PS*') { $subs[$p.Name] = [string]$p.Value }
+        }
+      } catch {}
+
+      $classFilters = [ordered]@{}
+      try {
+        $k = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4D36E96B-E325-11CE-BFC1-08002BE10318}'
+        $classFilters.upperFilters = @($k.UpperFilters)
+        $classFilters.lowerFilters = @($k.LowerFilters)
+      } catch {}
+
+      $layoutInfo = [ordered]@{}
+      try {
+        $k = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Keyboard Layouts\00010416'
+        $layoutInfo.layoutText = [string]$k.'Layout Text'
+        $layoutInfo.layoutFile = [string]$k.'Layout File'
+        $layoutInfo.layoutId = [string]$k.'Layout Id'
+      } catch {}
+
+      $accessibility = [ordered]@{}
+      foreach ($name in @('StickyKeys','Keyboard Response','ToggleKeys')) {
+        try {
+          $v = Get-ItemProperty ("HKCU:\Control Panel\Accessibility\" + $name)
+          $o = @{}
+          foreach ($p in $v.PSObject.Properties) {
+            if ($p.Name -notlike 'PS*') { $o[$p.Name] = [string]$p.Value }
+          }
+          $accessibility[$name] = $o
+        } catch {}
+      }
+
+      $remapProcesses = @()
+      try {
+        $patterns = @('AutoHotkey','PowerToys','KeyboardManager','SharpKeys','KeyTweak','Logi','LGHUB','Razer','Synapse','iCUE','Corsair','SteelSeries','DS4Windows','reWASD')
+        $remapProcesses = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+          $n = $_.ProcessName
+          $hit = $false
+          foreach ($pat in $patterns) { if ($n -like ('*' + $pat + '*')) { $hit = $true; break } }
+          $hit
+        } | ForEach-Object {
+          [ordered]@{ name=$_.ProcessName; pid=$_.Id }
+        })
+      } catch {}
+
+      $installed = @()
+      try {
+        $keys = @(
+          'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+          'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+          'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        )
+        $installed = @(Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object {
+          $n = [string]$_.DisplayName
+          $n -match '(?i)PowerToys|AutoHotkey|SharpKeys|KeyTweak|Logitech|G HUB|Razer|Synapse|Corsair|iCUE|SteelSeries|reWASD'
+        } | Select-Object -ExpandProperty DisplayName -Unique)
+      } catch {}
+
+      $osk = [ordered]@{}
+      try {
+        $osk.layout = [string](Get-Culture).Name
+        $osk.ui = [string](Get-UICulture).Name
+      } catch {}
+
+      return @{
+        devices = @($devices)
+        pnp = @($pnp)
+        preload = $preload
+        substitutes = $subs
+        classFilters = $classFilters
+        layoutInfo = $layoutInfo
+        accessibility = $accessibility
+        remapProcesses = @($remapProcesses)
+        installedRemappers = @($installed)
+        culture = $osk
+      }
     }
 
     'KEYBOARD_DIAG' {
