@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '3.1.0'
+$Version = '3.2.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -496,6 +496,107 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
         installedRemappers = @($installed)
         culture = $osk
       }
+    }
+
+
+    'SCREENSHOT' {
+      Add-Type -AssemblyName System.Windows.Forms
+      Add-Type -AssemblyName System.Drawing
+
+      $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      $src = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+      $g = [System.Drawing.Graphics]::FromImage($src)
+      try {
+        $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+
+        $targetWidth = 640
+        $targetHeight = [Math]::Max(1, [int]([Math]::Round($bounds.Height * ($targetWidth / [double]$bounds.Width))))
+        $dst = New-Object System.Drawing.Bitmap $targetWidth, $targetHeight
+        $g2 = [System.Drawing.Graphics]::FromImage($dst)
+        try {
+          $g2.DrawImage($src, 0, 0, $targetWidth, $targetHeight)
+          $ms = New-Object IO.MemoryStream
+          try {
+            $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+            $params = New-Object System.Drawing.Imaging.EncoderParameters 1
+            $params.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), ([long]35)
+            $dst.Save($ms, $codec, $params)
+            return @{
+              mime = 'image/jpeg'
+              width = $targetWidth
+              height = $targetHeight
+              imageBase64 = [Convert]::ToBase64String($ms.ToArray())
+            }
+          } finally { $ms.Dispose() }
+        } finally {
+          $g2.Dispose()
+          $dst.Dispose()
+        }
+      } finally {
+        $g.Dispose()
+        $src.Dispose()
+      }
+    }
+
+    'WINDOWS_LIST' {
+      $items = @(Get-Process | Where-Object {
+        $_.MainWindowHandle -ne 0 -and -not [string]::IsNullOrWhiteSpace($_.MainWindowTitle)
+      } | ForEach-Object {
+        [ordered]@{
+          pid = $_.Id
+          process = $_.ProcessName
+          title = $_.MainWindowTitle
+          handle = [string]$_.MainWindowHandle
+        }
+      } | Select-Object -First 100)
+      return @{ windows = @($items) }
+    }
+
+    'WINDOW_ACTIVATE' {
+      $pidTarget = [int]$CmdArgs.pid
+      $p = Get-Process -Id $pidTarget -ErrorAction Stop
+      if ($p.MainWindowHandle -eq 0) { throw 'window_not_found' }
+
+      if (-not ('RBWindowNative' -as [type])) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class RBWindowNative {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+}
+'@
+      }
+
+      [RBWindowNative]::ShowWindowAsync($p.MainWindowHandle, 9) | Out-Null
+      Start-Sleep -Milliseconds 120
+      $ok = [RBWindowNative]::SetForegroundWindow($p.MainWindowHandle)
+      return @{ pid=$pidTarget; title=$p.MainWindowTitle; activated=[bool]$ok }
+    }
+
+    'WINDOW_MOVE' {
+      $pidTarget = [int]$CmdArgs.pid
+      $x = [int]$CmdArgs.x
+      $y = [int]$CmdArgs.y
+      $width = [int]$CmdArgs.width
+      $height = [int]$CmdArgs.height
+      if ($width -lt 100 -or $height -lt 100 -or $width -gt 10000 -or $height -gt 10000) { throw 'invalid_window_size' }
+
+      $p = Get-Process -Id $pidTarget -ErrorAction Stop
+      if ($p.MainWindowHandle -eq 0) { throw 'window_not_found' }
+
+      if (-not ('RBWindowMoveNative' -as [type])) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class RBWindowMoveNative {
+  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool repaint);
+}
+'@
+      }
+
+      $ok = [RBWindowMoveNative]::MoveWindow($p.MainWindowHandle, $x, $y, $width, $height, $true)
+      return @{ pid=$pidTarget; moved=[bool]$ok; x=$x; y=$y; width=$width; height=$height }
     }
 
     'KEYBOARD_DIAG' {
