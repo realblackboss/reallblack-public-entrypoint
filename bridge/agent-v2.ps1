@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.1.0'
+$Version = '4.1.1'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -144,12 +144,12 @@ function Resolve-ReadPath([string]$RootName, [string]$RelativePath) {
   $key = $RootName.ToLowerInvariant()
   if (-not $ReadRoots.ContainsKey($key)) { throw 'root_not_allowed' }
 
-  $root = [IO.Path]::GetFullPath([string]$ReadRoots[$key]).TrimEnd('\\')
+  $root = [IO.Path]::GetFullPath([string]$ReadRoots[$key]).TrimEnd('\')
   if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $root }
   if ([IO.Path]::IsPathRooted($RelativePath)) { throw 'absolute_path_not_allowed' }
 
   $full = [IO.Path]::GetFullPath((Join-Path $root $RelativePath))
-  if ($full -ne $root -and -not $full.StartsWith($root + '\\', [StringComparison]::OrdinalIgnoreCase)) {
+  if ($full -ne $root -and -not $full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'path_escape_blocked'
   }
   return $full
