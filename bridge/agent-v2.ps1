@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE V2
 $ErrorActionPreference = 'Continue'
 
-$Version = '2.1.0'
+$Version = '2.1.1'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -120,7 +120,7 @@ function Get-SystemInfo {
   }
 }
 
-function Invoke-AllowedOperation([string]$Op, $Args) {
+function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
   switch ($Op.ToUpperInvariant()) {
     'PING' {
       return @{ pong = $true }
@@ -135,18 +135,18 @@ function Invoke-AllowedOperation([string]$Op, $Args) {
     }
 
     'MKDIR' {
-      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
       New-Item -ItemType Directory -Force -Path $p | Out-Null
       return @{ path = $p; created = $true }
     }
 
     'EXISTS' {
-      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
       return @{ path = $p; exists = (Test-Path $p) }
     }
 
     'LIST' {
-      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
       if (-not (Test-Path $p -PathType Container)) { throw 'directory_not_found' }
       $items = Get-ChildItem -LiteralPath $p -Force | Select-Object -First 500 | ForEach-Object {
         [ordered]@{
@@ -160,7 +160,7 @@ function Invoke-AllowedOperation([string]$Op, $Args) {
     }
 
     'READ_TEXT' {
-      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
+      $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
       if (-not (Test-Path $p -PathType Leaf)) { throw 'file_not_found' }
       $item = Get-Item -LiteralPath $p
       if ($item.Length -gt 262144) { throw 'file_too_large' }
@@ -168,8 +168,8 @@ function Invoke-AllowedOperation([string]$Op, $Args) {
     }
 
     'WRITE_TEXT' {
-      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
-      $text = [string]$Args.text
+      $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
+      $text = [string]$CmdArgs.text
       if ([Text.Encoding]::UTF8.GetByteCount($text) -gt 1048576) { throw 'content_too_large' }
       $parent = Split-Path -Parent $p
       New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -178,8 +178,8 @@ function Invoke-AllowedOperation([string]$Op, $Args) {
     }
 
     'APPEND_TEXT' {
-      $p = Resolve-SafePath ([string]$Args.root) ([string]$Args.path)
-      $text = [string]$Args.text
+      $p = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.path)
+      $text = [string]$CmdArgs.text
       if ([Text.Encoding]::UTF8.GetByteCount($text) -gt 262144) { throw 'content_too_large' }
       $parent = Split-Path -Parent $p
       New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -188,8 +188,8 @@ function Invoke-AllowedOperation([string]$Op, $Args) {
     }
 
     'MOVE' {
-      $src = Resolve-SafePath ([string]$Args.root) ([string]$Args.source)
-      $dst = Resolve-SafePath ([string]$Args.root) ([string]$Args.destination)
+      $src = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.source)
+      $dst = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.destination)
       if (-not (Test-Path $src)) { throw 'source_not_found' }
       $parent = Split-Path -Parent $dst
       New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -198,8 +198,8 @@ function Invoke-AllowedOperation([string]$Op, $Args) {
     }
 
     'COPY' {
-      $src = Resolve-SafePath ([string]$Args.root) ([string]$Args.source)
-      $dst = Resolve-SafePath ([string]$Args.root) ([string]$Args.destination)
+      $src = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.source)
+      $dst = Resolve-SafePath ([string]$CmdArgs.root) ([string]$CmdArgs.destination)
       if (-not (Test-Path $src)) { throw 'source_not_found' }
       $parent = Split-Path -Parent $dst
       New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -220,7 +220,7 @@ function Invoke-AllowedOperation([string]$Op, $Args) {
     }
 
     'PROC_STOP' {
-      $target = Get-Process -Id ([int]$Args.pid) -ErrorAction Stop
+      $target = Get-Process -Id ([int]$CmdArgs.pid) -ErrorAction Stop
       $protected = @('System','Idle','Registry','Memory Compression','smss','csrss','wininit','winlogon','services','lsass','svchost','dwm')
       if ($target.Id -eq $PID -or $protected -contains $target.ProcessName) { throw 'protected_process' }
       Stop-Process -Id $target.Id -Force -ErrorAction Stop
@@ -293,16 +293,16 @@ while ($true) {
 
         $cmdId = [string]$header[1]
         $op = [string]$header[2]
-        $args = [pscustomobject]@{}
+        $cmdArgs = [pscustomobject]@{}
         if ($lines.Count -ge 2 -and -not [string]::IsNullOrWhiteSpace($lines[1])) {
-          try { $args = Decode-Json $lines[1].Trim() } catch {
+          try { $cmdArgs = Decode-Json $lines[1].Trim() } catch {
             Reply $cmdId $false $null 'invalid_payload'
             continue
           }
         }
 
         try {
-          $result = Invoke-AllowedOperation $op $args
+          $result = Invoke-AllowedOperation $op $cmdArgs
           Reply $cmdId $true $result ''
         } catch {
           Reply $cmdId $false $null $_.Exception.Message
