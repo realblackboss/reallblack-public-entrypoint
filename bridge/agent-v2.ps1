@@ -1333,3 +1333,4 @@ while ($true) {
 # final-validation-trigger-v38
 # endpoint-validation-trigger
 # installer-health-validation-trigger
+# publish-v381-manifest
