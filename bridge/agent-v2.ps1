@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.1.1'
+$Version = '4.2.0'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -20,7 +20,7 @@ $ReadRoots = @{
 $Capabilities = @(
   'PING','BRIDGE_INFO','CAPABILITIES','SYSINFO',
   'PROC_LIST','WINDOWS_LIST','SERVICE_LIST',
-  'FILE_INFO','LIST','READ_TEXT'
+  'FILE_INFO','LIST','READ_TEXT','SCREEN_INFO','SCREENSHOT_SMALL'
 )
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
@@ -173,6 +173,78 @@ function Get-ArgInt($ArgsObject, [string]$Name, [int]$DefaultValue) {
   return $DefaultValue
 }
 
+function Get-ScreenInfo {
+  Add-Type -AssemblyName System.Windows.Forms
+  $screens = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
+    [ordered]@{
+      device = $_.DeviceName
+      primary = $_.Primary
+      x = $_.Bounds.X
+      y = $_.Bounds.Y
+      width = $_.Bounds.Width
+      height = $_.Bounds.Height
+      workingX = $_.WorkingArea.X
+      workingY = $_.WorkingArea.Y
+      workingWidth = $_.WorkingArea.Width
+      workingHeight = $_.WorkingArea.Height
+    }
+  })
+  return @{ screens=$screens; count=$screens.Count }
+}
+
+function Get-SmallScreenshot($CmdArgs) {
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type -AssemblyName System.Drawing
+
+  $maxWidth = Get-ArgInt $CmdArgs 'maxWidth' 480
+  $maxWidth = [Math]::Max(240,[Math]::Min($maxWidth,640))
+  $quality = Get-ArgInt $CmdArgs 'quality' 28
+  $quality = [Math]::Max(15,[Math]::Min($quality,45))
+
+  $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+  if ($null -eq $screen) { throw 'primary_screen_not_found' }
+  $b = $screen.Bounds
+
+  $src = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+  $g = [System.Drawing.Graphics]::FromImage($src)
+  try {
+    $g.CopyFromScreen($b.X,$b.Y,0,0,$b.Size)
+    $targetWidth = [Math]::Min($maxWidth,$b.Width)
+    $targetHeight = [Math]::Max(1,[int][Math]::Round($b.Height * ($targetWidth / [double]$b.Width)))
+    $dst = New-Object System.Drawing.Bitmap $targetWidth, $targetHeight
+    $g2 = [System.Drawing.Graphics]::FromImage($dst)
+    try {
+      $g2.DrawImage($src,0,0,$targetWidth,$targetHeight)
+      $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+      if ($null -eq $codec) { throw 'jpeg_codec_not_found' }
+      $ep = New-Object System.Drawing.Imaging.EncoderParameters 1
+      $ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), ([long]$quality)
+      $ms = New-Object IO.MemoryStream
+      try {
+        $dst.Save($ms,$codec,$ep)
+        $bytes = $ms.ToArray()
+        if ($bytes.Length -gt 24576) { throw 'screenshot_too_large_for_github_transport' }
+        return @{
+          mime='image/jpeg'
+          width=$targetWidth
+          height=$targetHeight
+          sourceWidth=$b.Width
+          sourceHeight=$b.Height
+          quality=$quality
+          bytes=$bytes.Length
+          imageBase64=[Convert]::ToBase64String($bytes)
+        }
+      } finally { $ms.Dispose() }
+    } finally {
+      $g2.Dispose()
+      $dst.Dispose()
+    }
+  } finally {
+    $g.Dispose()
+    $src.Dispose()
+  }
+}
+
 function Get-SystemInfo {
   $os = Get-CimInstance Win32_OperatingSystem
   $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
@@ -308,6 +380,12 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
       if ($bytes -contains 0) { throw 'binary_file_not_allowed' }
       $text = [Text.Encoding]::UTF8.GetString($bytes)
       return @{ root=$rootName; path=$relative; bytes=$bytes.Length; text=$text }
+    }
+    'SCREEN_INFO' {
+      return Get-ScreenInfo
+    }
+    'SCREENSHOT_SMALL' {
+      return Get-SmallScreenshot $CmdArgs
     }
     default {
       throw 'operation_not_allowed_in_safe_mode'
