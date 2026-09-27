@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.2.1'
+$Version = '4.2.2'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -20,7 +20,7 @@ $ReadRoots = @{
 $Capabilities = @(
   'PING','BRIDGE_INFO','CAPABILITIES','SYSINFO',
   'PROC_LIST','WINDOWS_LIST','SERVICE_LIST',
-  'FILE_INFO','LIST','READ_TEXT'
+  'FILE_INFO','LIST','READ_TEXT','SCREEN_INFO'
 )
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
@@ -173,6 +173,25 @@ function Get-ArgInt($ArgsObject, [string]$Name, [int]$DefaultValue) {
   return $DefaultValue
 }
 
+function Get-ScreenInfo {
+  Add-Type -AssemblyName System.Windows.Forms
+  $items = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
+    [ordered]@{
+      device = $_.DeviceName
+      primary = $_.Primary
+      x = $_.Bounds.X
+      y = $_.Bounds.Y
+      width = $_.Bounds.Width
+      height = $_.Bounds.Height
+      workingX = $_.WorkingArea.X
+      workingY = $_.WorkingArea.Y
+      workingWidth = $_.WorkingArea.Width
+      workingHeight = $_.WorkingArea.Height
+    }
+  })
+  return @{ screens=$items; count=$items.Count }
+}
+
 function Get-SystemInfo {
   $os = Get-CimInstance Win32_OperatingSystem
   $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
@@ -308,6 +327,9 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
       if ($bytes -contains 0) { throw 'binary_file_not_allowed' }
       $text = [Text.Encoding]::UTF8.GetString($bytes)
       return @{ root=$rootName; path=$relative; bytes=$bytes.Length; text=$text }
+    }
+    'SCREEN_INFO' {
+      return Get-ScreenInfo
     }
     default {
       throw 'operation_not_allowed_in_safe_mode'
