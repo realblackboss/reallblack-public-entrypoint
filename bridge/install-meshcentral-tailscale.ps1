@@ -89,10 +89,12 @@ $config = [ordered]@{
     cert = $fqdn
     WANonly = $true
     port = $Port
+    portBind = '127.0.0.1'
     aliasPort = 443
     redirPort = 0
     AgentPong = 300
-    tlsOffload = $true
+    tlsOffload = '127.0.0.1,::1'
+    trustedProxy = '127.0.0.1,::1'
     SelfUpdate = $false
     AllowFraming = $false
     WebRTC = $false
@@ -120,28 +122,62 @@ $config = [ordered]@{
 $configPath = Join-Path $DataDir 'config.json'
 $config | ConvertTo-Json -Depth 8 | Set-Content -Path $configPath -Encoding UTF8
 
-Write-Step 'Lote 4/5 - Servico persistente e firewall'
+Write-Step 'Lote 4/5 - Inicializacao persistente e backend local'
 $meshEntry = Join-Path $BaseDir 'node_modules\meshcentral'
 if (-not (Test-Path $meshEntry)) { throw 'MeshCentral nao foi instalado corretamente.' }
 
-Push-Location $BaseDir
+# Remove a tentativa de servico nativo caso uma execucao anterior tenha deixado estado parcial.
+# MeshCentral continua persistente via Tarefa Agendada transparente, executada como SYSTEM no boot.
 try {
-  & node node_modules\meshcentral --uninstall 2>$null | Out-Null
-  & node node_modules\meshcentral --install
-  if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar servico MeshCentral.' }
-  Start-Sleep -Seconds 2
-  & node node_modules\meshcentral --start 2>$null | Out-Null
-} finally {
-  Pop-Location
+  Push-Location $BaseDir
+  $nodePath = (Get-Command node -ErrorAction Stop).Source
+  $cleanup = ('"' + $nodePath + '" node_modules\meshcentral --uninstall >nul 2>&1')
+  cmd.exe /d /c $cleanup | Out-Null
+} catch {} finally {
+  try { Pop-Location } catch {}
 }
 
-$ruleName = 'REALLBLACK MeshCentral Backend Local Only'
-try {
-  Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-  New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Block -Protocol TCP -LocalPort $Port -Profile Any | Out-Null
-} catch {
-  Write-Step ('Aviso: firewall nao ajustado: ' + $_.Exception.Message)
+$runner = Join-Path $BaseDir 'run-meshcentral.cmd'
+$meshLog = Join-Path $LogDir 'meshcentral.log'
+$runnerLines = @(
+  '@echo off',
+  ('cd /d "' + $BaseDir + '"'),
+  ('"' + $nodePath + '" node_modules\meshcentral >> "' + $meshLog + '" 2>&1')
+)
+Set-Content -Path $runner -Value $runnerLines -Encoding ASCII
+
+$taskName = 'REALLBLACK-MESHCENTRAL'
+try { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null } catch {}
+try { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}
+
+$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/d /c "' + $runner + '"')
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'REALLBLACK MeshCentral local backend' -Force | Out-Null
+Start-ScheduledTask -TaskName $taskName
+
+$backendReady = $false
+$deadline = (Get-Date).AddSeconds(45)
+do {
+  Start-Sleep -Seconds 1
+  try {
+    $tcp = New-Object Net.Sockets.TcpClient
+    $iar = $tcp.BeginConnect('127.0.0.1',$Port,$null,$null)
+    if ($iar.AsyncWaitHandle.WaitOne(800) -and $tcp.Connected) { $backendReady = $true }
+    $tcp.Close()
+  } catch {}
+} while (-not $backendReady -and (Get-Date) -lt $deadline)
+
+if (-not $backendReady) {
+  $tail = ''
+  try {
+    if (Test-Path $meshLog -PathType Leaf) { $tail = (@(Get-Content $meshLog -Tail 25) -join ' | ') }
+  } catch {}
+  throw ('MeshCentral nao abriu a porta local ' + $Port + '. LOG=' + $tail)
 }
+
+Write-Step ('Backend MeshCentral OK em 127.0.0.1:' + $Port)
 
 Write-Step 'Lote 5/5 - Tailscale Serve privado'
 & tailscale serve reset 2>$null | Out-Null
@@ -164,4 +200,4 @@ Write-Host 'Reboot: nao realizado.'
 Write-Host ''
 Write-Host $serveStatus
 
-# CI validation marker
+# CI validation marker v2
