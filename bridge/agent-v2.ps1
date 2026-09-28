@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.2.4'
+$Version = '4.2.5'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -22,7 +22,7 @@ $ReadRoots = @{
 $Capabilities = @(
   'PING','BRIDGE_INFO','CAPABILITIES','SYSINFO',
   'PROC_LIST','WINDOWS_LIST','SERVICE_LIST',
-  'FILE_INFO','LIST','READ_TEXT','SCREEN_INFO','BRIDGE_DIAG'
+  'FILE_INFO','LIST','READ_TEXT','SCREEN_INFO','BRIDGE_DIAG','RESOURCE_SNAPSHOT','APP_STATUS'
 )
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
@@ -271,6 +271,78 @@ function Get-BridgeDiag {
   }
 }
 
+function Get-ResourceSnapshot {
+  $cpu = $null
+  try {
+    $vals = @(Get-CimInstance Win32_Processor | ForEach-Object { [double]$_.LoadPercentage })
+    if ($vals.Count -gt 0) { $cpu = [Math]::Round((($vals | Measure-Object -Average).Average),1) }
+  } catch {}
+
+  $memory = $null
+  try {
+    $os = Get-CimInstance Win32_OperatingSystem
+    $total = [double]$os.TotalVisibleMemorySize * 1KB
+    $free = [double]$os.FreePhysicalMemory * 1KB
+    $memory = [ordered]@{
+      totalGB = [Math]::Round($total / 1GB,2)
+      usedGB = [Math]::Round(($total-$free) / 1GB,2)
+      freeGB = [Math]::Round($free / 1GB,2)
+      usedPercent = if ($total -gt 0) { [Math]::Round((($total-$free)/$total)*100,1) } else { $null }
+    }
+  } catch {}
+
+  $disks = @()
+  try {
+    $disks = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | Sort-Object DeviceID | ForEach-Object {
+      [ordered]@{
+        drive = $_.DeviceID
+        sizeGB = if ($_.Size) { [Math]::Round([double]$_.Size/1GB,1) } else { $null }
+        freeGB = if ($_.FreeSpace) { [Math]::Round([double]$_.FreeSpace/1GB,1) } else { 0 }
+        freePercent = if ($_.Size) { [Math]::Round(([double]$_.FreeSpace/[double]$_.Size)*100,1) } else { $null }
+      }
+    })
+  } catch {}
+
+  $gpu = $null
+  try {
+    $smi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+    if ($smi) {
+      $line = & $smi.Source '--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu' '--format=csv,noheader,nounits' 2>$null | Select-Object -First 1
+      if (-not [string]::IsNullOrWhiteSpace([string]$line)) {
+        $p = @(([string]$line).Split(',') | ForEach-Object { $_.Trim() })
+        if ($p.Count -ge 5) {
+          $gpu = [ordered]@{ name=$p[0]; utilizationPercent=[double]$p[1]; memoryUsedMB=[double]$p[2]; memoryTotalMB=[double]$p[3]; temperatureC=[double]$p[4] }
+        }
+      }
+    }
+  } catch {}
+
+  return [ordered]@{ cpuPercent=$cpu; memory=$memory; disks=$disks; gpu=$gpu; timestamp=(Get-Date).ToString('o') }
+}
+
+function Get-AppStatus {
+  $groups = [ordered]@{
+    lol = @('LeagueClient','LeagueClientUx','LeagueClientUxRender','League of Legends')
+    obs = @('obs64')
+    discord = @('Discord')
+    opera = @('opera')
+    chatgpt = @('ChatGPT')
+  }
+  $all = @(Get-Process -ErrorAction SilentlyContinue)
+  $result = [ordered]@{}
+  foreach ($key in $groups.Keys) {
+    $names = @($groups[$key])
+    $matches = @($all | Where-Object { $names -contains $_.ProcessName })
+    $result[$key] = [ordered]@{
+      running = ($matches.Count -gt 0)
+      count = $matches.Count
+      pids = @($matches | ForEach-Object { $_.Id })
+      memoryMB = [Math]::Round((($matches | Measure-Object WorkingSet64 -Sum).Sum / 1MB),1)
+    }
+  }
+  return $result
+}
+
 function Get-SystemInfo {
   $os = Get-CimInstance Win32_OperatingSystem
   $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
@@ -414,6 +486,12 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
     }
     'BRIDGE_DIAG' {
       return Get-BridgeDiag
+    }
+    'RESOURCE_SNAPSHOT' {
+      return Get-ResourceSnapshot
+    }
+    'APP_STATUS' {
+      return Get-AppStatus
     }
     default {
       throw 'operation_not_allowed_in_safe_mode'
