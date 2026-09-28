@@ -6,6 +6,7 @@ on:
     paths:
       - bridge/agent-v2.ps1
       - bridge/screen-helper.ps1
+      - bridge/install-meshcentral-tailscale.ps1
       - bridge/install-screen-helper.ps1
   workflow_dispatch:
 
