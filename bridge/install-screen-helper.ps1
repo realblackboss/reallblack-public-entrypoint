@@ -1,4 +1,5 @@
 # REALLBLACK SCREEN HELPER INSTALLER
+# Independently validated module installer.
 $ErrorActionPreference = 'Stop'
 
 $BaseDir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge\ScreenHelper'
