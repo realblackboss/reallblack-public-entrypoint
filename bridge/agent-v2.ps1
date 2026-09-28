@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.2.6'
+$Version = '4.2.7'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -24,7 +24,7 @@ $ReadRoots = @{
 $Capabilities = @(
   'PING','BRIDGE_INFO','CAPABILITIES','SYSINFO',
   'PROC_LIST','WINDOWS_LIST','SERVICE_LIST',
-  'FILE_INFO','LIST','READ_TEXT','SCREEN_INFO','BRIDGE_DIAG','RESOURCE_SNAPSHOT','APP_STATUS'
+  'FILE_INFO','LIST','READ_TEXT','SCREEN_INFO','BRIDGE_DIAG','RESOURCE_SNAPSHOT','APP_STATUS','UPDATE_CHECK'
 )
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
@@ -346,6 +346,23 @@ function Get-AppStatus {
   return $result
 }
 
+function Get-UpdateCheck {
+  try {
+    $uri = 'https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/manifest-v2.json?t=' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $m = Invoke-RestMethod -UseBasicParsing -Uri $uri -TimeoutSec 15
+    $latest = [string]$m.version
+    return [ordered]@{
+      installed = $Version
+      latest = $latest
+      updateAvailable = (-not [string]::IsNullOrWhiteSpace($latest) -and $latest -ne $Version)
+      sha256 = [string]$m.sha256
+      checkedAt = (Get-Date).ToString('o')
+    }
+  } catch {
+    return [ordered]@{ installed=$Version; latest=$null; updateAvailable=$null; error=$_.Exception.Message; checkedAt=(Get-Date).ToString('o') }
+  }
+}
+
 function Get-SystemInfo {
   $os = Get-CimInstance Win32_OperatingSystem
   $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
@@ -498,6 +515,9 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
     }
     'APP_STATUS' {
       return Get-AppStatus
+    }
+    'UPDATE_CHECK' {
+      return Get-UpdateCheck
     }
     default {
       throw 'operation_not_allowed_in_safe_mode'
