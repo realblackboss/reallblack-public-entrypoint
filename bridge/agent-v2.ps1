@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.2.7'
+$Version = '4.2.8'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -79,6 +79,8 @@ function Update-Heartbeat {
       pid = $PID
       machine = $env:COMPUTERNAME
       mode = 'safe-readonly'
+      pollErrors = $script:PollErrorCount
+      lastPollOk = if ($script:LastPollOk) { $script:LastPollOk.ToString('o') } else { $null }
       timestamp = (Get-Date).ToString('o')
       intervalSeconds = $HeartbeatSeconds
     }
@@ -560,11 +562,15 @@ $lastHealth = (Get-Date).AddMinutes(-1)
 $lastHeartbeat = (Get-Date).AddMinutes(-5)
 $currentPollSeconds = $PollSecondsNormal
 $lastGameCheck = (Get-Date).AddMinutes(-5)
+$script:PollErrorCount = 0
+$script:LastPollOk = Get-Date
 Update-Heartbeat | Out-Null
 
 while ($true) {
   try {
     $comments = @(Poll-Comments $pollSince)
+    $script:PollErrorCount = 0
+    $script:LastPollOk = Get-Date
     if ($comments.Count -gt 0) {
       foreach ($c in @($comments | Sort-Object id)) {
         [long]$cid = 0
@@ -619,6 +625,7 @@ while ($true) {
       if ($null -ne $latest) { $pollSince = $latest.AddSeconds(-2) }
     }
   } catch {
+    $script:PollErrorCount = [Math]::Min(($script:PollErrorCount + 1),10)
     Write-Log ('Loop error: ' + $_.Exception.Message)
   }
 
@@ -640,5 +647,10 @@ while ($true) {
     $lastGameCheck = Get-Date
   }
 
-  Start-Sleep -Seconds $currentPollSeconds
+  $backoffSeconds = 0
+  if ($script:PollErrorCount -gt 0) {
+    $backoffSeconds = [Math]::Min(60,[int][Math]::Pow(2,[Math]::Min($script:PollErrorCount,5)))
+  }
+  $sleepSeconds = [Math]::Max($currentPollSeconds,$backoffSeconds)
+  Start-Sleep -Seconds $sleepSeconds
 }
