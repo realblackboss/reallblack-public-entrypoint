@@ -23,14 +23,22 @@ if (-not (Test-Path $ConfigPath -PathType Leaf)) {
   throw "Config do MeshCentral nao encontrado: $ConfigPath"
 }
 
-$config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-if (-not $config.domains) { throw 'Secao domains ausente no config.json.' }
+# Windows PowerShell 5.1 pode falhar no ConvertFrom-Json quando o MeshCentral usa
+# uma chave de dominio vazia (""). Edite somente a propriedade NewAccounts no texto bruto.
+$raw = Get-Content $ConfigPath -Raw
+if ([string]::IsNullOrWhiteSpace($raw)) { throw 'config.json vazio.' }
 
-$domain = $config.domains.PSObject.Properties[''].Value
-if ($null -eq $domain) { throw 'Dominio padrao do MeshCentral nao encontrado.' }
+$pattern = '("NewAccounts"\s*:\s*)(true|false)'
+if ($raw -notmatch $pattern) { throw 'Propriedade NewAccounts nao encontrada no config.json.' }
 
-$domain.NewAccounts = $false
-$config | ConvertTo-Json -Depth 12 | Set-Content -Path $ConfigPath -Encoding UTF8
+$updated = [regex]::Replace($raw, $pattern, '$1false', 1)
+if ($updated -eq $raw -and $raw -notmatch '"NewAccounts"\s*:\s*false') {
+  throw 'Nao foi possivel alterar NewAccounts.'
+}
+
+$backup = $ConfigPath + '.pre-harden-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.bak'
+Copy-Item -LiteralPath $ConfigPath -Destination $backup -Force
+[IO.File]::WriteAllText($ConfigPath, $updated, (New-Object Text.UTF8Encoding -ArgumentList $false))
 
 try {
   Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
