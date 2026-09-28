@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.2.2'
+$Version = '4.2.3'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -9,6 +9,8 @@ $BaseDir = Join-Path $env:LOCALAPPDATA 'ReallBlackBridge'
 $StateFile = Join-Path $BaseDir 'state-v4.json'
 $HealthFile = Join-Path $BaseDir 'health-v4.json'
 $LogFile = Join-Path $BaseDir 'bridge-v4.log'
+$HeartbeatIdFile = Join-Path $BaseDir 'heartbeat-comment-id.txt'
+$HeartbeatSeconds = 60
 
 $ReadRoots = @{
   desktop = [Environment]::GetFolderPath('Desktop')
@@ -62,6 +64,36 @@ function Post-Comment([string]$Body) {
     return $true
   } catch {
     Write-Log ('Post falhou: ' + $_.Exception.Message)
+    return $false
+  }
+}
+
+function Update-Heartbeat {
+  try {
+    $payload = [ordered]@{
+      status = 'online'
+      version = $Version
+      pid = $PID
+      machine = $env:COMPUTERNAME
+      mode = 'safe-readonly'
+      timestamp = (Get-Date).ToString('o')
+      intervalSeconds = $HeartbeatSeconds
+    }
+    $body = 'RB2_HEARTBEAT' + [Environment]::NewLine + (Encode-Json $payload)
+    [long]$commentId = 0
+    if (Test-Path $HeartbeatIdFile -PathType Leaf) {
+      try { $commentId = [long](Get-Content $HeartbeatIdFile -Raw).Trim() } catch {}
+    }
+    if ($commentId -gt 0) {
+      $null = & gh api -X PATCH ("repos/{0}/issues/comments/{1}" -f $Repo,$commentId) -f ("body={0}" -f $body) 2>$null
+      if ($LASTEXITCODE -eq 0) { return $true }
+    }
+    $newId = & gh api -X POST ("repos/{0}/issues/{1}/comments" -f $Repo,$Issue) -f ("body={0}" -f $body) --jq '.id' 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$newId)) { throw 'heartbeat_post_failed' }
+    Set-Content -Path $HeartbeatIdFile -Value ([string]$newId).Trim() -Encoding ASCII
+    return $true
+  } catch {
+    Write-Log ('Heartbeat falhou: ' + $_.Exception.Message)
     return $false
   }
 }
@@ -227,6 +259,8 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
         mode = 'safe-readonly'
         roots = @($ReadRoots.Keys | Sort-Object)
         capabilities = @($Capabilities)
+        heartbeatSeconds = $HeartbeatSeconds
+        transport = 'github-comments'
       }
     }
     'CAPABILITIES' {
@@ -369,6 +403,8 @@ Write-Health
 
 $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-5)
 $lastHealth = (Get-Date).AddMinutes(-1)
+$lastHeartbeat = (Get-Date).AddMinutes(-5)
+Update-Heartbeat | Out-Null
 
 while ($true) {
   try {
@@ -433,6 +469,11 @@ while ($true) {
   if (((Get-Date) - $lastHealth).TotalSeconds -ge 10) {
     Write-Health
     $lastHealth = Get-Date
+  }
+
+  if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge $HeartbeatSeconds) {
+    Update-Heartbeat | Out-Null
+    $lastHeartbeat = Get-Date
   }
 
   Start-Sleep -Seconds 2
