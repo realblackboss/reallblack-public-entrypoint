@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.2.3'
+$Version = '4.2.4'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -22,7 +22,7 @@ $ReadRoots = @{
 $Capabilities = @(
   'PING','BRIDGE_INFO','CAPABILITIES','SYSINFO',
   'PROC_LIST','WINDOWS_LIST','SERVICE_LIST',
-  'FILE_INFO','LIST','READ_TEXT','SCREEN_INFO'
+  'FILE_INFO','LIST','READ_TEXT','SCREEN_INFO','BRIDGE_DIAG'
 )
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
@@ -224,6 +224,53 @@ function Get-ScreenInfo {
   return @{ screens=$items; count=$items.Count }
 }
 
+function Get-BridgeDiag {
+  $startupFile = Join-Path ([Environment]::GetFolderPath('Startup')) 'REALLBLACK-PC-BRIDGE-SAFE-V4.cmd'
+  $desktopLauncher = Join-Path ([Environment]::GetFolderPath('Desktop')) 'LIGAR PONTE - REALLBLACK.cmd'
+  $screenHelper = Join-Path $BaseDir 'ScreenHelper\screen-helper.ps1'
+  $fileHelper = Join-Path $BaseDir 'FileHelper\file-helper.ps1'
+
+  $taskState = 'missing'
+  try {
+    $task = Get-ScheduledTask -TaskName 'REALLBLACK-PC-BRIDGE-SAFE-V4' -ErrorAction Stop
+    $taskState = [string]$task.State
+  } catch {}
+
+  $healthAgeSeconds = $null
+  try {
+    if (Test-Path $HealthFile -PathType Leaf) {
+      $h = Get-Content $HealthFile -Raw | ConvertFrom-Json
+      $healthAgeSeconds = [Math]::Round(((Get-Date) - ([datetime]$h.timestamp)).TotalSeconds,1)
+    }
+  } catch {}
+
+  $ghPresent = [bool](Get-Command gh -ErrorAction SilentlyContinue)
+  $ghAuthenticated = $false
+  if ($ghPresent) {
+    try {
+      $null = & gh auth status -h github.com 2>$null
+      $ghAuthenticated = ($LASTEXITCODE -eq 0)
+    } catch {}
+  }
+
+  return [ordered]@{
+    version = $Version
+    pid = $PID
+    machine = $env:COMPUTERNAME
+    mode = 'safe-readonly'
+    heartbeatSeconds = $HeartbeatSeconds
+    healthAgeSeconds = $healthAgeSeconds
+    scheduledTask = $taskState
+    startupLauncher = (Test-Path $startupFile -PathType Leaf)
+    desktopLauncher = (Test-Path $desktopLauncher -PathType Leaf)
+    heartbeatCommentIdFile = (Test-Path $HeartbeatIdFile -PathType Leaf)
+    githubCli = $ghPresent
+    githubAuthenticated = $ghAuthenticated
+    screenHelperInstalled = (Test-Path $screenHelper -PathType Leaf)
+    fileHelperInstalled = (Test-Path $fileHelper -PathType Leaf)
+  }
+}
+
 function Get-SystemInfo {
   $os = Get-CimInstance Win32_OperatingSystem
   $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
@@ -364,6 +411,9 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
     }
     'SCREEN_INFO' {
       return Get-ScreenInfo
+    }
+    'BRIDGE_DIAG' {
+      return Get-BridgeDiag
     }
     default {
       throw 'operation_not_allowed_in_safe_mode'
