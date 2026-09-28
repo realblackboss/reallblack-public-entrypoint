@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.2.9'
+$Version = '4.2.8'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -74,7 +74,7 @@ function Post-Comment([string]$Body) {
 function Update-Heartbeat {
   try {
     $payload = [ordered]@{
-      status = if ($script:PollErrorCount -gt 0) { 'degraded' } else { 'online' }
+      status = 'online'
       version = $Version
       pid = $PID
       machine = $env:COMPUTERNAME
@@ -83,9 +83,6 @@ function Update-Heartbeat {
       lastPollOk = if ($script:LastPollOk) { $script:LastPollOk.ToString('o') } else { $null }
       timestamp = (Get-Date).ToString('o')
       intervalSeconds = $HeartbeatSeconds
-      pollErrors = $script:PollErrorCount
-      lastPollOk = if ($script:LastPollOk) { $script:LastPollOk.ToString('o') } else { $null }
-      pollSeconds = if ($currentPollSeconds) { $currentPollSeconds } else { $PollSecondsNormal }
     }
     $body = 'RB2_HEARTBEAT' + [Environment]::NewLine + (Encode-Json $payload)
     [long]$commentId = 0
