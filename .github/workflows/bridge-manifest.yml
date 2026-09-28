@@ -6,6 +6,7 @@ on:
     paths:
       - bridge/agent-v2.ps1
       - bridge/screen-helper.ps1
+      - bridge/install-screen-helper.ps1
   workflow_dispatch:
 
 permissions:
@@ -24,7 +25,7 @@ jobs:
       - name: Validate PowerShell syntax
         shell: pwsh
         run: |
-          foreach ($file in @('bridge/agent-v2.ps1','bridge/install.ps1','bridge/screen-helper.ps1')) {
+          foreach ($file in @('bridge/agent-v2.ps1','bridge/install.ps1','bridge/screen-helper.ps1','bridge/install-screen-helper.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
@@ -47,7 +48,7 @@ jobs:
             'User-Agent' = 'REALLBLACK-Bridge-Validator'
           }
           $base = 'https://api.github.com/repos/realblackboss/reallblack-public-entrypoint/contents/'
-          foreach ($path in @('bridge/manifest-v2.json','bridge/agent-v2.ps1')) {
+          foreach ($path in @('bridge/manifest-v2.json','bridge/agent-v2.ps1','bridge/screen-helper.ps1','bridge/install-screen-helper.ps1')) {
             $uri = $base + $path + '?ref=main'
             $r = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri -Headers $headers -TimeoutSec 20
             if ($r.StatusCode -ne 200 -or [string]::IsNullOrWhiteSpace([string]$r.Content)) {
@@ -83,6 +84,23 @@ jobs:
               json.dumps(manifest, indent=2) + "\n",
               encoding='utf-8'
           )
+          hp = Path('bridge/screen-helper.ps1')
+          hraw = hp.read_bytes()
+          htext = hraw.decode('utf-8')
+          hm = re.search(r"\$Version\s*=\s*'([^']+)'", htext)
+          if not hm:
+              raise SystemExit('Screen helper version not found')
+          hmanifest = {
+              "version": hm.group(1),
+              "url": "https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/screen-helper.ps1",
+              "sha256": hashlib.sha256(hraw).hexdigest(),
+              "mode": "local-only",
+              "protections": ["sha256","syntax-parse","last-good-backup"]
+          }
+          Path('bridge/screen-helper-manifest.json').write_text(
+              json.dumps(hmanifest, indent=2) + "\n",
+              encoding='utf-8'
+          )
 
       - name: Commit manifest
         shell: bash
@@ -92,12 +110,12 @@ jobs:
             echo "A newer bridge commit exists; skipping stale manifest publication."
             exit 0
           fi
-          if git diff --quiet -- bridge/manifest-v2.json; then
+          if git diff --quiet -- bridge/manifest-v2.json bridge/screen-helper-manifest.json; then
             echo "Manifest already current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add bridge/manifest-v2.json
+          git add bridge/manifest-v2.json bridge/screen-helper-manifest.json
           git commit -m "bridge: publish validated manifest"
           git push
