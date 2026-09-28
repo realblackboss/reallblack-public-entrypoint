@@ -163,3 +163,5 @@ Write-Host 'Defender: nao alterado.'
 Write-Host 'Reboot: nao realizado.'
 Write-Host ''
 Write-Host $serveStatus
+
+# CI validation marker
