@@ -1,7 +1,7 @@
 # REALLBLACK BRIDGE SAFE V4
 $ErrorActionPreference = 'Continue'
 
-$Version = '4.2.5'
+$Version = '4.2.6'
 $Repo = 'realblackboss/twitch-gpt-gemini-2026'
 $Issue = 1
 $Trusted = 'realblackboss'
@@ -11,6 +11,8 @@ $HealthFile = Join-Path $BaseDir 'health-v4.json'
 $LogFile = Join-Path $BaseDir 'bridge-v4.log'
 $HeartbeatIdFile = Join-Path $BaseDir 'heartbeat-comment-id.txt'
 $HeartbeatSeconds = 60
+$PollSecondsNormal = 2
+$PollSecondsGame = 5
 
 $ReadRoots = @{
   desktop = [Environment]::GetFolderPath('Desktop')
@@ -26,6 +28,7 @@ $Capabilities = @(
 )
 
 New-Item -ItemType Directory -Force -Path $BaseDir | Out-Null
+try { (Get-Process -Id $PID -ErrorAction Stop).PriorityClass = 'BelowNormal' } catch {}
 
 $script:BridgeMutex = New-Object System.Threading.Mutex($false, 'Local\REALLBLACK_BRIDGE_SAFE_V4')
 $acquired = $false
@@ -380,6 +383,9 @@ function Invoke-AllowedOperation([string]$Op, $CmdArgs) {
         capabilities = @($Capabilities)
         heartbeatSeconds = $HeartbeatSeconds
         transport = 'github-comments'
+        processPriority = 'BelowNormal'
+        pollSecondsNormal = $PollSecondsNormal
+        pollSecondsGame = $PollSecondsGame
       }
     }
     'CAPABILITIES' {
@@ -532,6 +538,8 @@ Write-Health
 $pollSince = (Get-Date).ToUniversalTime().AddSeconds(-5)
 $lastHealth = (Get-Date).AddMinutes(-1)
 $lastHeartbeat = (Get-Date).AddMinutes(-5)
+$currentPollSeconds = $PollSecondsNormal
+$lastGameCheck = (Get-Date).AddMinutes(-5)
 Update-Heartbeat | Out-Null
 
 while ($true) {
@@ -604,5 +612,13 @@ while ($true) {
     $lastHeartbeat = Get-Date
   }
 
-  Start-Sleep -Seconds 2
+  if (((Get-Date) - $lastGameCheck).TotalSeconds -ge 30) {
+    try {
+      $inGame = ($null -ne (Get-Process -Name 'League of Legends' -ErrorAction SilentlyContinue | Select-Object -First 1))
+      $currentPollSeconds = if ($inGame) { $PollSecondsGame } else { $PollSecondsNormal }
+    } catch { $currentPollSeconds = $PollSecondsNormal }
+    $lastGameCheck = Get-Date
+  }
+
+  Start-Sleep -Seconds $currentPollSeconds
 }
