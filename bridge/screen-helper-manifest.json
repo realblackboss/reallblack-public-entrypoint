@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "url": "https://raw.githubusercontent.com/realblackboss/reallblack-public-entrypoint/main/bridge/screen-helper.ps1",
+  "sha256": "979c97cfcc51dce49179fd8cb304e4ce1e5b7fa2986587fb9c2cbf2d06ca5d4a",
+  "mode": "local-only",
+  "protections": [
+    "sha256",
+    "syntax-parse",
+    "last-good-backup"
+  ]
+}
