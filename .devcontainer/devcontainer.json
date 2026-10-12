@@ -1,25 +1,12 @@
 {
   "name": "Instagram REALLBLLACK | Navegador Nuvem",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "build": {"dockerfile": "Dockerfile"},
+  "features": {"ghcr.io/devcontainers/features/sshd:1": {"version": "latest"}},
   "remoteUser": "vscode",
-  "forwardPorts": [
-    6080
-  ],
+  "forwardPorts": [6080],
   "portsAttributes": {
-    "6080": {
-      "label": "Instagram - navegador remoto privado",
-      "onAutoForward": "notify",
-      "protocol": "http"
-    }
+    "6080": {"label": "Instagram - navegador remoto privado", "onAutoForward": "notify", "protocol": "http"}
   },
   "postStartCommand": "bash .devcontainer/start-instagram.sh",
-  "customizations": {
-    "vscode": {
-      "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash"
-      }
-    }
-  }
+  "customizations": {"vscode": {"settings": {"terminal.integrated.defaultProfile.linux": "bash"}}}
 }
