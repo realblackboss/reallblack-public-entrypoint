@@ -1,0 +1,3 @@
+# Local-only browser state; NEVER push Instagram auth or VNC passwords.
+.ig-local-private/
+*.vncpasswd
